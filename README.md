@@ -30,6 +30,12 @@ open site/index.html              # 双击就能看，不需要起服务
 站点本身也是 `frontier-knowledge-base` 那套 `build_site.py` 的同门实现，
 两个站共享同一套设计取舍。
 
+## 换域名
+
+只需要改 `data/projects.py` 里的 `SITE["domain"]` 一处。
+`build_site.py` 会据此生成 `site/CNAME`，CI 里有 job 专门校验它只出现一次。
+完整步骤见 `docs/DNS.md`。
+
 ## 发布
 
 合并进 `main` 后由 `.github/workflows/deploy.yml` 自动构建并发布到 GitHub Pages。
