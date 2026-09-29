@@ -56,9 +56,25 @@ jobs:
           python-version: '3.12'
       - run: python3 scripts/build_site.py
       # 域名写错会导致 GitHub Pages 掉回 *.github.io，且没有任何报错。
-      # 这里把「域名只有一处真相源」钉住。
-      - name: Domain appears exactly once as source of truth
+      #
+      # 现在 data/ 里有两个地址，它们不是重复：
+      #   domain   = 目标域名（只用来产出 CNAME）
+      #   base_url = 站点现在实际在哪儿（canonical / sitemap / robots 都用它）
+      # 所以这里断言的是「每个地址各自只有一处真相源」，而不是
+      # 「域名在整个文件里只出现一次」——后者会把 base_url 误判成重复。
+      - name: Addresses have a single source of truth
         run: |
-          n=$(grep -c 'icesuite.eu.org' data/projects.py)
-          test "$n" -eq 1
-          grep -q 'icesuite.eu.org' site/CNAME
+          python3 - <<'PY'
+          import re, sys
+          text = open('data/projects.py', encoding='utf-8').read()
+          # 只统计赋值语句里的字符串字面量，注释里的提及不算
+          domains = re.findall(r'^\s*"domain":\s*"([^"]+)"', text, re.M)
+          bases = re.findall(r'^\s*"base_url":\s*"([^"]+)"', text, re.M)
+          assert len(domains) == 1, f'domain 出现 {len(domains)} 次，应恰好 1 次'
+          assert len(bases) == 1, f'base_url 出现 {len(bases)} 次，应恰好 1 次'
+          cname = open('site/CNAME', encoding='utf-8').read().strip()
+          assert cname == domains[0], f'CNAME {cname} != domain {domains[0]}'
+          # base_url 必须是能打开的地址：canonical 不该指向一个解析不到的域名
+          assert bases[0].startswith('https://'), 'base_url 必须是 https'
+          print(f'domain={domains[0]}  base_url={bases[0]}  CNAME OK')
+          PY
