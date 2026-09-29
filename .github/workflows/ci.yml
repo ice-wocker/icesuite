@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # 外链会随时间腐烂（Release 被删、仓库改名），即使仓库没动也定期体检
+    - cron: '0 4 * * 1'
+
+jobs:
+  build:
+    name: 构建站点
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build
+        run: python3 scripts/build_site.py
+      - name: Assert output
+        run: |
+          test -f site/index.html
+          test -f site/search.json
+          test -f site/CNAME
+          pages=$(find site -name '*.html' | wc -l)
+          test "$pages" -ge 12
+          echo "页面数 $pages"
+
+  check:
+    name: 结构与站内链接检查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 scripts/build_site.py
+      # PR 上跳过外链（GitHub 侧有速率限制，反馈要快）；定时任务才全量查
+      - name: Check structure
+        if: github.event_name != 'schedule'
+        run: python3 scripts/check_site.py --skip-links
+      - name: Check structure + links (scheduled)
+        if: github.event_name == 'schedule'
+        run: python3 scripts/check_site.py
+
+  pages-config:
+    name: 校验 Pages 用的 CNAME
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 scripts/build_site.py
+      # 域名写错会导致 GitHub Pages 掉回 *.github.io，且没有任何报错。
+      # 这里把「域名只有一处真相源」钉住。
+      - name: Domain appears exactly once as source of truth
+        run: |
+          n=$(grep -c 'icesuite.eu.org' data/projects.py)
+          test "$n" -eq 1
+          grep -q 'icesuite.eu.org' site/CNAME
