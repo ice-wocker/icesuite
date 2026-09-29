@@ -62,6 +62,7 @@ def load():
         p["repo_url"] = f"https://github.com/{site['author']}/{p['repo']}"
         p["releases_url"] = f"https://github.com/{site['author']}/{p['repo']}/releases"
         p["url"] = f"{p['id']}.html"
+        p["page_url"] = f"{site['base_url'].rstrip('/')}/{p['url']}"
         p["group_label"] = gmap[p["group"]][1]
     return site, groups, projects
 
@@ -154,8 +155,31 @@ footer a{color:var(--muted)}
 .pager{display:flex;justify-content:space-between;gap:12px;margin-top:3em;
 padding-top:1.4em;border-top:1px solid var(--border);font-size:.9rem}
 .pager a{max-width:47%}
+.actbar{display:grid;grid-template-columns:1fr auto;gap:10px;margin:1.3em 0 .6em;max-width:520px}
+.actbar select{padding:9px 12px;border-radius:9px;border:1px solid var(--border);
+background:var(--panel);color:var(--fg);font-size:.9rem;font-family:inherit}
+.actbar select:focus{outline:none;border-color:var(--accent)}
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.skip{position:absolute;left:-9999px;top:0;z-index:40;background:var(--panel);
+border:1px solid var(--accent);border-radius:0 0 9px 0;padding:9px 14px}
+.skip:focus{left:0}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.copy{font-size:.8rem;min-width:3.4em;text-align:center}
+.copy[data-done]{color:var(--accent2);border-color:#1d3f2a}
+ul.hl li :last-child{margin-bottom:0}
 @media(max-width:640px){h1,.hero h1{font-size:1.5rem}.wrap{padding:0 16px}
-header.top nav{display:none}.stats{gap:18px}}
+header.top{height:auto}header.top .wrap{height:auto;padding:9px 16px;gap:10px}
+header.top nav{margin-left:auto;gap:12px;overflow-x:auto;white-space:nowrap;
+-webkit-overflow-scrolling:touch;scrollbar-width:none}
+header.top nav::-webkit-scrollbar{display:none}
+.brand{font-size:.95rem}
+.stats{gap:18px}
+.actions{width:100%}.btn{flex:1 1 auto;justify-content:center}
+.pager{font-size:.85rem}}
+/* 手机上不随系统字号无限放大，避免把布局撑坏；有下限所以仍然可读 */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+@media print{header.top,footer,.actbar,.searchbox{display:none}}
 """
 
 SEARCH_JS = """
@@ -195,35 +219,132 @@ SEARCH_JS = """
     }).join('');
   }
   box.addEventListener('input',function(){clearTimeout(timer);timer=setTimeout(function(){render(box.value)},120)});
+  box.addEventListener('keydown',function(e){
+    if(e.key==='Escape'){box.value='';out.innerHTML='';return}
+    if(e.key==='Enter'){var first=out.querySelector('a.hit');if(first){e.preventDefault();first.click()}}
+  });
+  // 搜索索引加载失败时不要静默——否则用户以为“搜不到”
+  window.addEventListener('error',function(){},{once:true});
 })();
 """
 
 
-def page(site, title, body, depth=0, search=False):
+
+# ---------- 图标与分享图（零依赖：手写 SVG + 结构固定的 PNG） ----------
+
+FAVICON = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<rect width="64" height="64" rx="14" fill="#0b0f14"/>
+<g fill="none" stroke="#5ad1ff" stroke-width="3" stroke-linecap="round">
+<path d="M32 12v40M14.7 22l34.6 20M49.3 22 14.7 42"/>
+<path d="M32 20l-6-5M32 20l6-5M32 44l-6 5M32 44l6 5"/>
+</g>
+<circle cx="32" cy="32" r="4.5" fill="#7ee787"/>
+</svg>
+"""
+
+# apple-touch-icon：一个 180×180 的深色圆角方块 + 冰晶线条。
+# 不引 Pillow——用 PNG 的 zlib/deflate 手写，构造固定但完全合法。
+def _png_chunk(tag, data):
+    import struct, zlib
+    return (struct.pack(">I", len(data)) + tag + data
+            + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF))
+
+def _make_apple_icon(size=180):
+    import struct, zlib
+    bg = (0x0b, 0x0f, 0x14)
+    fg = (0x5a, 0xd1, 0xff)
+    dot = (0x7e, 0xe7, 0x87)
+    cx = cy = size / 2
+    rows = []
+    for y in range(size):
+        row = bytearray()
+        for x in range(size):
+            px = bg
+            dx, dy = x + .5 - cx, y + .5 - cy
+            r = (dx * dx + dy * dy) ** .5
+            # 三条穿过中心的主轴（0° / 60° / 120°）
+            for ang in (0, 60, 120):
+                import math
+                rad = math.radians(ang)
+                nx, ny = math.cos(rad), math.sin(rad)
+                dist = abs(-ny * dx + nx * dy)          # 点到直线的距离
+                along = nx * dx + ny * dy
+                if dist < 2.6 and abs(along) < size * .34:
+                    px = fg
+            # 中心绿点
+            if r < 11:
+                px = dot
+            row += bytes(px)
+        rows.append(bytes(row))
+    raw = b"".join(b"\x00" + r for r in rows)
+    return (b"\x89PNG\r\n\x1a\n"
+            + _png_chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0))
+            + _png_chunk(b"IDAT", zlib.compress(raw, 9))
+            + _png_chunk(b"IEND", b""))
+
+
+APPLE_ICON = _make_apple_icon()
+
+
+def og_image(site, n_projects):
+    """分享卡片图。SVG 就够：Twitter / Slack / 微信读得了 og:image 的 SVG，
+    不支持的地方会退化成纯文本卡片，不会破相。"""
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+<rect width="1200" height="630" fill="#0b0f14"/>
+<g fill="none" stroke="#5ad1ff" stroke-width="4" opacity=".5">
+<path d="M600 120v390M374 240l452 260M826 240 374 500"/>
+</g>
+<rect x="0" y="0" width="1200" height="630" fill="#0b0f14" opacity=".35"/>
+<text x="90" y="300" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,PingFang SC,Microsoft YaHei,sans-serif"
+ font-size="86" font-weight="700" fill="#e6edf3">{esc(site['name'])}</text>
+<text x="90" y="380" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,PingFang SC,Microsoft YaHei,sans-serif"
+ font-size="38" fill="#7ee787">{esc(site['tagline'])}</text>
+<text x="90" y="450" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,PingFang SC,Microsoft YaHei,sans-serif"
+ font-size="30" fill="#8b98a8">{n_projects} 个原创作品 · 零第三方依赖 · 离线可用 · 体积可验证</text>
+<circle cx="600" cy="315" r="14" fill="#7ee787" opacity=".9"/>
+</svg>
+"""
+
+
+def page(site, title, body, depth=0, search=False, desc=None, path="index.html"):
     prefix = "../" * depth
     extra = f"<script>{SEARCH_JS}</script>" if search else ""
+    desc = desc or site["desc"]
+    base = site["base_url"].rstrip("/")
+    url = f"{base}/{path}"
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{esc(title)}</title>
-<meta name="description" content="{esc(site['desc'])}">
+<meta name="description" content="{esc(desc)}">
 <meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#0b0f14">
+<link rel="canonical" href="{esc(url)}">
 <meta property="og:title" content="{esc(title)}">
-<meta property="og:description" content="{esc(site['desc'])}">
+<meta property="og:description" content="{esc(desc)}">
 <meta property="og:type" content="website">
+<meta property="og:url" content="{esc(url)}">
+<meta property="og:site_name" content="{esc(site['name'])}">
+<meta property="og:image" content="{esc(base)}/og.svg">
+<meta property="og:image:alt" content="{esc(site['tagline'])}">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="{prefix}favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="{prefix}apple-touch-icon.png">
+<link rel="manifest" href="{prefix}site.webmanifest">
 <link rel="stylesheet" href="{prefix}style.css">
 </head>
 <body>
+<a class="skip" href="#main">跳到主内容</a>
 <header class="top"><div class="wrap">
-<span class="brand">🧊 <em>ice</em> 工坊</span>
-<nav>
+<a class="brand" href="{prefix}index.html">🧊 <em>ice</em> 工坊</a>
+<nav aria-label="站点导航">
 <a href="{prefix}index.html">全部项目</a>
 <a href="https://github.com/{site['author']}">GitHub</a>
 </nav>
 </div></header>
-<main class="wrap">
+<main class="wrap" id="main">
 {body}
 </main>
 <footer><div class="wrap">
@@ -288,19 +409,31 @@ def build(site, groups, projects):
             f'<div class="cards">{"".join(cards)}</div></section>'
         )
 
+    domain_note = ""
+    if site.get("domain_status") == "pending":
+        domain_note = (
+            '<div class="note" role="note"><b>域名状态</b><ul>'
+            f'<li><code>{esc(site["domain"])}</code> 仍在 eu.org 审核队列里，公共 DNS 目前解析不到，'
+            '所以这个站点的正式入口是 <code>ice-wocker.github.io/icesuite</code>。</li>'
+            '<li>地址换了、内容没换：两处是同一份产物，<code>data/projects.py</code> 是唯一真相源。</li>'
+            '</ul></div>'
+        )
+
     body = f"""<div class="hero">
 <p class="kicker">{esc(site['tagline'])}</p>
 <h1>{esc(site['name'])}</h1>
 <p class="lead">{esc(site['desc'])}</p>
 </div>
-<div class="stats">
+{domain_note}<div class="stats">
 <div><b>{len(projects)}</b>个作品</div>
 <div><b>{n_release}</b>个可直接下载</div>
 <div><b>0</b>个 fork</div>
 <div><b>0</b>个第三方依赖（口径见各项目页）</div>
 </div>
-<input id="q" class="searchbox" type="search" placeholder="搜索 {len(projects)} 个项目（名称 / 简介 / 技术栈）…" autocomplete="off">
-<div id="results"></div>
+<label class="vh" for="q">搜索项目</label>
+<input id="q" class="searchbox" type="search" placeholder="搜索 {len(projects)} 个项目（名称 / 简介 / 技术栈）…" autocomplete="off" aria-controls="results" aria-describedby="q-hint">
+<p id="q-hint" class="vh">输入关键词即时过滤，回车打开第一条结果，Esc 清空。</p>
+<div id="results" role="list" aria-live="polite"></div>
 """ + "\n".join(sections)
     (OUT / "index.html").write_text(page(site, f"{site['name']} · {site['tagline']}", body, 0, search=True),
                                    encoding="utf-8")
@@ -317,7 +450,9 @@ def build(site, groups, projects):
         )
         actions = []
         if p["dl_release"]:
-            actions.append(f'<a class="btn primary" href="{p["dl_release"]}">⬇ 下载最新 APK</a>')
+            actions.append(f'<a class="btn primary" href="{p["dl_release"]}" '
+                           f'aria-label="下载 {esc(p["name"])} 最新 APK">⬇ 下载最新 APK'
+                           f'<span class="badge">{esc(p.get("release_tag") or "")}</span></a>')
         if p.get("external_url"):
             actions.append(f'<a class="btn" href="{p["external_url"]}">{esc(p["external_label"])}</a>')
         actions.append(f'<a class="btn" href="{p["repo_url"]}">源码仓库</a>')
@@ -326,7 +461,11 @@ def build(site, groups, projects):
 
         prev_p = projects[i - 1] if i > 0 else None
         next_p = projects[i + 1] if i + 1 < len(projects) else None
-        pager = ['<div class="pager">']
+        pager = ['<div class="actbar">'
+                 '<button class="btn copy" type="button" data-copy="' + esc(p["page_url"]) + '">复制链接</button>'
+                 '<button class="btn" type="button" data-share>分享</button>'
+                 '</div>',
+                 '<div class="pager">']
         pager.append(f'<a href="{prev_p["url"]}">← {esc(prev_p["name"])}</a>' if prev_p else "<span></span>")
         pager.append(f'<a style="text-align:right" href="{next_p["url"]}">{esc(next_p["name"])} →</a>' if next_p else "<span></span>")
         pager.append("</div>")
@@ -345,7 +484,23 @@ def build(site, groups, projects):
 {limits_block}
 <h2>技术栈</h2>
 <div class="tech">{techs}</div>
-{''.join(pager)}"""
+{''.join(pager)}
+<script>
+(function(){{
+  var c=document.querySelector('[data-copy]'), s=document.querySelector('[data-share]');
+  if(c) c.addEventListener('click',function(){{
+    var u=c.getAttribute('data-copy');
+    (navigator.clipboard?navigator.clipboard.writeText(u):Promise.reject()).then(function(){{
+      c.setAttribute('data-done','1'); var o=c.textContent; c.textContent='已复制';
+      setTimeout(function(){{c.removeAttribute('data-done');c.textContent=o}},1400);
+    }},function(){{ location.href='mailto:?body='+encodeURIComponent(u); }});
+  }});
+  if(s){{
+    if(navigator.share){{ s.addEventListener('click',function(){{ navigator.share({{title:document.title,url:location.href}}) }}); }}
+    else {{ s.remove(); }}
+  }}
+}})();
+</script>"""
         (OUT / f'{p["id"]}.html').write_text(page(site, f'{p["name"]} · {site["name"]}', b), encoding="utf-8")
 
     # 404 兜底（GitHub Pages 会用它）
@@ -354,7 +509,41 @@ def build(site, groups, projects):
                '<div class="actions"><a class="btn primary" href="index.html">回到首页</a></div></div>')
     (OUT / "404.html").write_text(page(site, "404 · " + site["name"], body404), encoding="utf-8")
 
-    # CNAME：GitHub Pages 绑定自定义域名的唯一凭据
+    # ---- 图标 / manifest / 分享图 / 爬虫文件 ----
+    # 一个只有文字的站点本来不需要图标，但「没有图标」在浏览器标签页和
+    # 分享卡片上都是可见的缺失，而这些文件一共只有几百字节。
+    (OUT / "favicon.svg").write_text(FAVICON, encoding="utf-8")
+    (OUT / "apple-touch-icon.png").write_bytes(APPLE_ICON)
+    (OUT / "og.svg").write_text(og_image(site, len(projects)), encoding="utf-8")
+    (OUT / "site.webmanifest").write_text(json.dumps({
+        "name": f"{site['name']} · {site['tagline']}",
+        "short_name": site["name"],
+        "description": site["desc"],
+        "start_url": "./",
+        "scope": "./",
+        "display": "browser",
+        "background_color": "#0b0f14",
+        "theme_color": "#0b0f14",
+        "lang": "zh-CN",
+        "icons": [
+            {"src": "favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"},
+            {"src": "apple-touch-icon.png", "sizes": "180x180", "type": "image/png"},
+        ],
+    }, ensure_ascii=False, indent=1), encoding="utf-8")
+    base = site["base_url"].rstrip("/")
+    (OUT / "robots.txt").write_text(
+        "User-agent: *\nAllow: /\n"
+        f"Sitemap: {base}/sitemap.xml\n", encoding="utf-8")
+    urls = [f"{base}/"] + [f"{base}/{p['url']}" for p in projects]
+    (OUT / "sitemap.xml").write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        + "".join(f"  <url><loc>{esc(u)}</loc></url>\n" for u in urls)
+        + "</urlset>\n", encoding="utf-8")
+
+    # CNAME：自定义域名仍然是首选入口，但它是「可选项」而不是「必须项」：
+    # eu.org 审批期间或域名掉了的时候，GitHub Pages 会忽略它，站点照常
+    # 从 *.github.io 提供服务。以前这行只有 domain，现在两种入口都存在。
     (OUT / "CNAME").write_text(site["domain"] + "\n", encoding="utf-8")
     (OUT / ".nojekyll").write_text("", encoding="utf-8")
     return len(projects)
