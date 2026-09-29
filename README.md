@@ -11,6 +11,19 @@ scripts/check_site.py   自检：产物完整性、站内死链、下载链接�
 site/                   构建产物（不入库）
 ```
 
+## 内容源里有什么
+
+`data/projects.py` 同时管着 12 个项目条目与站点自身信息：
+
+- `SITE["base_url"]` —— **站点当前可访问的地址**，canonical / og:url / sitemap 都从它生成
+- `SITE["domain"]` —— 自定义域名，只用于产出 `CNAME`（见 `docs/DNS.md`）
+- `SITE["domain_status"]` —— `live` / `pending`；`pending` 时首页会出现「域名状态」提示条
+
+这两个地址不是重复：`domain` 是目标，`base_url` 是现状。
+域名还没解析好的时候，站点必须能在 `*.github.io` 上正常打开、且 canonical 不指向一个打不开的地址。
+
+```
+
 ## 本地使用
 
 ```bash
