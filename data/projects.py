@@ -2,8 +2,16 @@
 """项目清单：站点的唯一内容源。
 
 改内容只改这个文件，站点由 scripts/build_site.py 投影生成。
-`repo` 对应 ice-wocker/<repo>；`release_asset` 为 None 表示没有可安装产物
-（脚本类 / 服务端类），下载入口会指向仓库而不是伪造一个包。
+`repo` 对应 ice-wocker/<repo>；没有可安装产物的项目（脚本类 / 服务端类）
+不写 `platform`，商店页会把它们归到「服务，不是安装包」那一栏，指向仓库而不是伪造一个包。
+
+本文件只写「这个项目是什么」这类稳定事实：文案、分组、标签、亮点、已知限制。
+「这个包现在是什么版本、多大、什么时候发的」全部来自 data/releases.json
+（由 scripts/fetch_releases.py 从 GitHub API 冻结）。哪个仓库有可安装的 APK 也由那份文件决定——
+不在清单里手写，否则发新版本忘改清单就会变成静默死链。
+
+所以文案里要提体积时用 `{size}` 占位，构建时替换成真实值——
+「70 KB」这种数字写死在文案里，发一次版就变成假的。
 """
 
 SITE = {
@@ -13,6 +21,8 @@ SITE = {
     "author": "ice-wocker",
     "author_url": "https://github.com/ice-wocker",
     "desc": "ice-wocker 的十一个原创作品，全部零第三方依赖、离线可用、体积可验证。",
+    "store_name": "ice 应用商店",
+    "store_tagline": "一次下齐 · 全部离线可用 · 无追踪无广告",
 }
 
 GROUPS = [
@@ -35,9 +45,14 @@ PROJECTS += [
         "summary": "whisper.cpp 与模型内置在应用里，装完就能把语音转成文字。因为不申请 INTERNET 权限，"
                    "录音和文字在技术上没有任何路径离开这台设备——这不是承诺，是权限层面的事实。",
         "tags": ["离线", "隐私", "语音转写", "零依赖"],
-        "metrics": [("APK", "58.3 MB"), ("第三方依赖", "0"), ("关键权限", "仅麦克风")],
+        "metrics": [("第三方依赖", "0"), ("关键权限", "仅麦克风")],
+        "platform": "android",
+        "min_android": "8.0",
+        "arch": "arm64-v8a",
+        "store_note": "内置 57 MB 模型，包体就是这么来的；换 tiny 模型可降到约 39 MB。",
+        "installation": "下载 APK 后直接安装。若系统提示「未知来源」，在安装界面允许本次安装即可；本应用不需要联网，装完就能用。",
+
         "status": "mature",
-        "release_asset": "iceScribe-0.1.1.apk",
         "highlights": [
             ("无网络权限", "系统设置里点开权限列表，只有录音相关权限。飞行模式下照常工作。"),
             ("常数内存", "边录边实时重采样成 16 kHz 单声道写盘，转写按段流式读取，录一小时内存也不涨。"),
@@ -60,9 +75,14 @@ PROJECTS += [
         "summary": "把魔搭社区的模型目录装进手机，下载 .gguf 后用内置 llama.cpp 纯 CPU 离线对话。"
                    "对话页是个真正闭环的智能体——模型可以自己调终端、联网、读写文件，拿到真实结果再继续推理。",
         "tags": ["端侧推理", "GGUF", "Agent", "llama.cpp"],
-        "metrics": [("APK", "8.2 MB"), ("模型总量", "25.9 万"), ("测试", "37")],
+        "metrics": [("模型总量", "25.9 万"), ("测试", "37")],
+        "platform": "android",
+        "min_android": "7.0",
+        "arch": "arm64-v8a",
+        "store_note": "默认不带模型；GGUF 模型在应用内按需下载，所以安装包只有 {size}。",
+        "installation": "下载 APK 后直接安装。想聊天需要先在应用内下载一个 .gguf 模型，安装包本身不含模型。",
+
         "status": "active",
-        "release_asset": "ModelScope-Models-2.4.1.apk",
         "highlights": [
             ("六个维度筛选", "许可证 / 框架库 / 标签 / 语言 / 模型结构 / 领域，取值与数量实时来自接口聚合。"),
             ("下载可靠", "断点续传 + 前台服务通知，进程被杀后再进来自动接着下；完成后校验字节数与 GGUF 魔数。"),
@@ -81,14 +101,19 @@ PROJECTS += [
         "repo": "KayaGo",
         "name": "KayaGo",
         "group": "on-device-ai",
-        "pitch": "从零手写的 MCTS 围棋 AI，<b>70 KB 的安装包</b>",
+        "pitch": "从零手写的 MCTS 围棋 AI，<b>{size} 的安装包</b>",
         "summary": "不联网、不加载任何权重文件、不引任何第三方库的 Android 围棋应用。"
                    "引擎是从零实现的蒙特卡洛树搜索，另附一套纯 Java 的自对弈进化工具链——"
                    "这是账号里唯一「算法本身即资产」的项目。",
         "tags": ["围棋", "MCTS", "算法", "自对弈"],
-        "metrics": [("APK", "70 KB"), ("第三方依赖", "0"), ("单测", "47")],
+        "metrics": [("第三方依赖", "0"), ("单测", "47")],
+        "platform": "android",
+        "min_android": "5.0",
+        "arch": "universal",
+        "store_note": "{size} 的安装包，不加载任何权重文件，装完立刻能下棋。",
+        "installation": "下载 APK 后直接安装。引擎与规则内置，首次启动无需任何配置和下载。",
+
         "status": "active",
-        "release_asset": "KayaGo-1.2.0.apk",
         "highlights": [
             ("规则内核", "坐标用带边框内部索引，边界统一为 WALL，省掉全部越界判断；棋块用单向链表，"
                         "落子与撤销都在 O(棋块大小) 量级。"),
@@ -113,9 +138,14 @@ PROJECTS += [
         "summary": "零第三方依赖、零权限、不联网的文档扫描 App。拍照交给系统相机、选图走系统文件选择器、"
                    "导出的 PDF 用自己的 ContentProvider 递出去——三件事都不要权限，所以权限列表真的是空的。",
         "tags": ["扫描", "PDF", "图像算法", "零权限"],
-        "metrics": [("APK", "72 KB"), ("权限", "0 个"), ("单测", "34")],
+        "metrics": [("权限", "0 个"), ("单测", "34")],
+        "platform": "android",
+        "min_android": "7.0",
+        "arch": "universal",
+        "store_note": "权限列表是空的——相机走系统相机、选图走系统选择器，都不需要授权。",
+        "installation": "下载 APK 后直接安装。装好后权限列表为空属正常现象，不是功能缺失。",
+
         "status": "mature",
-        "release_asset": "iceScan-0.1.0.apk",
         "highlights": [
             ("自动找边", "拍完立刻猜出纸张四角，拖角微调；找不到明显纸边时退成整幅画面等你手动拖，不拦着用。"),
             ("透视拉直", "由四组对应点解出单应矩阵，对输出图每个像素反查原图位置再双线性取色，斜着拍也拉得正。"),
@@ -132,13 +162,18 @@ PROJECTS += [
         "repo": "iceBrowser",
         "name": "iceBrowser",
         "group": "tools",
-        "pitch": "纯 Java 单 dex 浏览器，<b>164 KB</b>（同类普遍 30 MB+）",
+        "pitch": "纯 Java 单 dex 浏览器，<b>{size}</b>（同类普遍 30 MB+）",
         "summary": "零第三方依赖的 Android 浏览器。真正的多 Tab、四个可切换搜索引擎、自研搜索引擎与本地爬取、"
                    "内置广告拦截与阅读模式。体积是它的招牌，但作者自己也说：轻量浏览器换不来账号同步与完美兼容。",
         "tags": ["浏览器", "广告拦截", "单 dex", "零依赖"],
-        "metrics": [("APK", "164 KB"), ("第三方依赖", "0"), ("单测", "11")],
+        "metrics": [("第三方依赖", "0"), ("单测", "11")],
+        "platform": "android",
+        "min_android": "7.0",
+        "arch": "universal",
+        "store_note": "纯 Java 单 dex，{size}；同类主流浏览器安装包普遍在 30 MB 以上。",
+        "installation": "下载 APK 后直接安装。它是独立浏览器应用，不会接管系统默认打开方式。",
+
         "status": "mature",
-        "release_asset": "icebrowser.apk",
         "highlights": [
             ("真正的多 Tab", "每个 tab 独立 WebView，OS 级别隔离；target=_blank、intent://、market:// 全部拦在应用内。"),
             ("自研搜索引擎", "不依赖第三方 API，走 DuckDuckGo HTML 端点并带 Bing / Google 兜底，结果带 LRU 缓存。"),
@@ -156,13 +191,18 @@ PROJECTS += [
         "repo": "iceReading",
         "name": "iceReading",
         "group": "tools",
-        "pitch": "97 KB 的 EPUB 阅读器，<b>零云同步零追踪</b>",
+        "pitch": "{size} 的 EPUB 阅读器，<b>零云同步零追踪</b>",
         "summary": "纯 Java、零依赖、单 dex 的本地 EPUB 2/3 阅读器，带 OPDS 在线书库发现、本地扫描、"
                    "5 套主题与阅读统计。工程规范度是这个账号里最高的——有 CHANGELOG、有 PRIVACY、有 OPDS 发现文件。",
         "tags": ["EPUB", "阅读器", "OPDS", "零依赖"],
-        "metrics": [("APK", "97 KB"), ("第三方依赖", "0"), ("内置书库", "6 个")],
+        "metrics": [("第三方依赖", "0"), ("内置书库", "6 个")],
+        "platform": "android",
+        "min_android": "7.0",
+        "arch": "universal",
+        "store_note": "{size}，零云同步、零追踪、零账号。",
+        "installation": "下载 APK 后直接安装。首次打开会引导从本地目录或内置的 6 个 OPDS 书库添加书。",
+
         "status": "mature",
-        "release_asset": "icereading.apk",
         "highlights": [
             ("OPDS 发现", "内置古登堡 / Standard Ebooks / Feedbooks 等 6 个在线书库，支持 Basic Auth 与 Bearer Token。"),
             ("五套主题", "日间 / 护眼 / 羊皮 / 夜间 / 深邃，字体、行距、段距、边距均可调。"),
@@ -185,8 +225,13 @@ PROJECTS += [
                    "四个公开合法音源。零广告、零追踪、零账号，下载后可完整离线播放。",
         "tags": ["音乐", "播客", "离线缓存", "零广告"],
         "metrics": [("曲库", "900 万+"), ("电台", "2945"), ("音源", "4 个")],
+        "platform": "android",
+        "min_android": "7.0",
+        "arch": "universal",
+        "store_note": "聚合 4 个公开合法音源，900 万曲 + 2945 电台，可完整离线缓存。",
+        "installation": "下载 APK 后直接安装。拉流需要联网，已下载的曲目可离线播放。",
+
         "status": "active",
-        "release_asset": "musicfusion.apk",
         "highlights": [
             ("全部合法音源", "Audius、Internet Archive、RadioBrowser、SomaFM——没有灰色接口，也没有破解流。"),
             ("完整离线", "下载后本地缓存，飞行模式照常播放。"),
@@ -207,9 +252,14 @@ PROJECTS += [
         "summary": "MusicFusion 的 AI 增强 add-on，13 个 Java 类提供端侧大模型、五大 AI 任务调度、"
                    "多源歌词、卡拉 OK 渲染，以及 Android Auto 与 Wear OS 支持。",
         "tags": ["端侧 LLM", "歌词", "Android Auto", "Wear OS"],
-        "metrics": [("APK", "40 KB"), ("Java 类", "13"), ("AI 任务", "5")],
+        "metrics": [("Java 类", "13"), ("AI 任务", "5")],
+        "platform": "android",
+        "min_android": "7.0",
+        "arch": "universal",
+        "store_note": "MusicFusion 的 AI 增强模块，{size}。",
+        "installation": "下载 APK 后直接安装。建议与 MusicFusion 一起装：本体负责播放，它负责 AI 能力。",
+
         "status": "beta",
-        "release_asset": "musicfusion-ai.apk",
         "highlights": [
             ("端侧模型", "内置 Qwen2.5-0.5B 本地推理，翻译与分类不上传。"),
             ("五项 AI 任务", "补全、分类、命名、心情识别、翻译统一调度。"),
@@ -233,7 +283,6 @@ PROJECTS += [
         "tags": ["知识库", "Markdown", "全文搜索", "外链体检"],
         "metrics": [("文档", "163 篇"), ("领域", "9 个"), ("外链", "4181 条")],
         "status": "active",
-        "release_asset": None,
         "external_url": "https://ice-wocker.github.io/frontier-knowledge-base/",
         "external_label": "知识库在线站点",
         "highlights": [
@@ -259,7 +308,6 @@ PROJECTS += [
         "tags": ["Termux", "本地 LLM", "OpenAI API", "单文件"],
         "metrics": [("体积", "单文件脚本"), ("部署", "一行命令"), ("模型", "3 个系列")],
         "status": "mature",
-        "release_asset": None,
         "highlights": [
             ("一行命令", "curl 管道进 bash，不需要 clone、不需要装依赖。"),
             ("协议兼容", "暴露标准 OpenAI 端点，现有客户端改 base_url 即可接入。"),
@@ -282,7 +330,6 @@ PROJECTS += [
         "tags": ["Cloudflare Workers", "API 网关", "OpenAI 协议", "零冷启动"],
         "metrics": [("模型", "8 个"), ("Provider", "5 家"), ("单测", "15")],
         "status": "active",
-        "release_asset": None,
         "highlights": [
             ("一致性测试", "有一条单测专门断言 PROVIDERS 里的每个模型都出现在 README 表格里——"
                           "此前文档宣传的 6 个模型在代码里一个都不存在，现在这类漂移会直接 CI 变红。"),

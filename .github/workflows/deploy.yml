@@ -7,8 +7,7 @@ on:
     branches: [ main ]
     paths:
       - 'data/**'
-      - 'scripts/build_site.py'
-      - 'scripts/check_site.py'
+      - 'scripts/**'
       - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
@@ -34,12 +33,19 @@ jobs:
       - name: Assert output
         run: |
           test -f site/index.html
+          test -f site/store.html
           test -f site/search.json
           test -f site/CNAME
           grep -q 'icesuite.eu.org' site/CNAME
           pages=$(find site -name '*.html' | wc -l)
           echo "生成 HTML 页面数: $pages"
-          test "$pages" -ge 12
+          test "$pages" -ge 13
+          n=$(grep -c 'data-apk="' site/store.html)
+          echo "商店页可下载: $n"
+          test "$n" -ge 8
+      # 发布前再跑一次自检：宁可不上线，也不让坏产物出去
+      - name: Self check
+        run: python3 scripts/check_site.py
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

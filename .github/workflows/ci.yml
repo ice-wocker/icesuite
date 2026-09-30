@@ -23,11 +23,16 @@ jobs:
       - name: Assert output
         run: |
           test -f site/index.html
+          test -f site/store.html
           test -f site/search.json
           test -f site/CNAME
           pages=$(find site -name '*.html' | wc -l)
-          test "$pages" -ge 12
+          test "$pages" -ge 13
           echo "页面数 $pages"
+          # 商店页必须真的有可下载的应用，不能是空壳
+          n=$(grep -c 'data-apk="' site/store.html)
+          test "$n" -ge 8
+          echo "商店页可下载 $n 个"
 
   check:
     name: 结构与站内链接检查
@@ -45,6 +50,24 @@ jobs:
       - name: Check structure + links (scheduled)
         if: github.event_name == 'schedule'
         run: python3 scripts/check_site.py
+
+  releases:
+    name: 校验 Release 元数据
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build
+        run: python3 scripts/build_site.py
+      # 商店页的版本号/体积来自 data/releases.json。它是个快照，
+      # 仓库发了新版但没人重新生成，商店就会一直显示旧版本——而且没人会发现。
+      # 这里联网对比一次，把「快照过期」变成 CI 红。
+      - name: releases.json 是否与线上 Release 一致
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/fetch_releases.py --check
 
   pages-config:
     name: 校验 Pages 用的 CNAME

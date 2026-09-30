@@ -47,6 +47,30 @@ def esc(s):
     return html.escape(str(s), quote=False)
 
 
+def human_size(n):
+    """把字节数写成人看得懂的样子。用 1024 进制，和系统「应用信息」里的口径一致。"""
+    if not n:
+        return ""
+    if n < 1024:
+        return f"{n} B"
+    if n < 1024 * 1024:
+        kb = n / 1024
+        return f"{kb:.0f} KB" if kb >= 10 else f"{kb:.1f} KB"
+    return f"{n / 1024 / 1024:.1f} MB"
+
+
+def load_releases():
+    """读 data/releases.json —— 「这个包现在长什么样」的唯一真相源。
+
+    文件不存在不算致命：只是商店页拿不到版本号，站点其余部分照常构建。
+    真正的把关在 check_site.py，那里会把它当错误报出来。
+    """
+    f = DATA / "releases.json"
+    if not f.exists():
+        return {}
+    return json.loads(f.read_text(encoding="utf-8")).get("releases", {})
+
+
 def load():
     ns = {}
     exec((DATA / "projects.py").read_text(encoding="utf-8"), ns)
@@ -54,15 +78,27 @@ def load():
     groups = ns.get("GROUPS", GROUPS)
     projects = ns["PROJECTS"]
     gmap = {k: (k, label, desc) for k, label, desc in groups}
+    releases = load_releases()
     for p in projects:
-        p["dl_release"] = (
-            f"https://github.com/{site['author']}/{p['repo']}/releases/latest/download/{p['release_asset']}"
-            if p.get("release_asset") else None
-        )
+        rel = releases.get(p["repo"]) or {}
         p["repo_url"] = f"https://github.com/{site['author']}/{p['repo']}"
         p["releases_url"] = f"https://github.com/{site['author']}/{p['repo']}/releases"
         p["url"] = f"{p['id']}.html"
         p["group_label"] = gmap[p["group"]][1]
+        # 可安装产物完全由 releases.json 决定：有 .apk 才叫「能装」
+        p["version"] = rel.get("tag") or ""
+        p["published_at"] = rel.get("published_at") or ""
+        p["size_bytes"] = rel.get("size") or 0
+        p["size_text"] = human_size(rel.get("size"))
+        p["downloads"] = rel.get("downloads") or 0
+        p["dl_release"] = rel.get("url")
+        p["installable"] = bool(p.get("platform") and p["dl_release"])
+        # 文案里的 {size} 只在这里替换，保证「页面上的体积」与「Release 里的字节数」
+        # 永远是同一个数。没有 Release 的项目保留原样，不做假数据。
+        if p["size_text"]:
+            for k in ("pitch", "summary", "store_note"):
+                if isinstance(p.get(k), str):
+                    p[k] = p[k].replace("{size}", p["size_text"])
     return site, groups, projects
 
 
@@ -156,6 +192,58 @@ padding-top:1.4em;border-top:1px solid var(--border);font-size:.9rem}
 .pager a{max-width:47%}
 @media(max-width:640px){h1,.hero h1{font-size:1.5rem}.wrap{padding:0 16px}
 header.top nav{display:none}.stats{gap:18px}}
+/* ---- 应用商店 ---- */
+.storehead{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:.4em}
+.storehead h1{margin:0}
+.storehead .tag{color:var(--muted);font-size:.9rem}
+.bulk{margin:1.2em 0 2em;padding:18px 20px;background:var(--panel);border:1px solid var(--border);
+border-radius:14px}
+.bulk .row{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.bulk .row .grow{flex:1;min-width:200px}
+.bulk b{display:block;font-size:1.02rem;margin-bottom:3px}
+.bulk span{color:var(--muted);font-size:.86rem;line-height:1.6}
+.bulk .tot{color:var(--accent2);font-weight:700}
+.applist{display:flex;flex-direction:column;gap:10px;margin:0 0 2.4em}
+.app{display:grid;grid-template-columns:40px 1fr auto;gap:14px;align-items:center;
+padding:14px 16px;background:var(--panel);border:1px solid var(--border);border-radius:12px}
+.app:hover{border-color:#2f4a63}
+.app .ico{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;
+justify-content:center;font-size:20px;background:var(--panel2);border:1px solid var(--border)}
+.app .nm{font-weight:700;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.app .nm a{color:var(--fg)}
+.app .meta{color:var(--muted);font-size:.8rem;margin-top:3px;
+display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.app .meta .dot{opacity:.4}
+.app .meta .ver{color:var(--accent2)}
+.app .pitch{color:var(--muted);font-size:.86rem;margin-top:5px;line-height:1.6}
+.app .pitch b{color:var(--accent2);font-weight:600}
+.app .act{display:flex;gap:8px;align-items:center}
+.app .act .btn{padding:7px 14px;font-size:.85rem;white-space:nowrap}
+.app.none{opacity:.9}
+.app.none .ico{opacity:.5}
+.queue{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;z-index:60;
+width:min(560px,calc(100vw - 24px));background:var(--panel);border:1px solid var(--border);
+border-radius:14px;padding:14px 16px;box-shadow:0 12px 40px rgba(0,0,0,.5);display:none}
+.queue.on{display:block}
+.queue .qh{display:flex;align-items:center;gap:10px;font-size:.9rem;font-weight:600}
+.queue .qh .n{margin-left:auto;color:var(--muted);font-weight:400;font-size:.82rem}
+.queue .bar{height:5px;border-radius:3px;background:#1d2735;margin:10px 0 8px;overflow:hidden}
+.queue .bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .25s}
+.queue .qn{color:var(--muted);font-size:.82rem}
+.queue .qx{background:none;border:1px solid var(--border);color:var(--muted);
+border-radius:7px;padding:3px 9px;font-size:.78rem;cursor:pointer;font-family:inherit}
+.queue .qx:hover{color:var(--fg);border-color:var(--accent)}
+.help{margin:1.4em 0;padding:14px 18px;background:var(--panel);border:1px solid var(--border);
+border-radius:12px}
+.help summary{cursor:pointer;font-weight:600;font-size:.93rem}
+.help ol{color:var(--muted);font-size:.87rem;line-height:1.8;padding-left:1.3em;margin:.8em 0 0}
+.help code{background:var(--panel2);border:1px solid var(--border);border-radius:4px;padding:1px 5px;font-size:.85em}
+@media(max-width:640px){
+.app{grid-template-columns:34px 1fr;gap:12px}
+.app .act{grid-column:1/-1}
+.app .act .btn{flex:1;justify-content:center}
+.app .ico{width:34px;height:34px;font-size:17px;border-radius:9px}
+}
 """
 
 SEARCH_JS = """
@@ -199,9 +287,78 @@ SEARCH_JS = """
 """
 
 
-def page(site, title, body, depth=0, search=False):
+STORE_JS = """
+/* 一键下载：顺序点一遍链接，用 <a download> 触发浏览器的下载管理。
+   为什么不是 ZIP：GitHub Pages 是纯静态托管，没有服务端可以打包；
+   而前端打包要么引 JSZip（破零依赖的口径），要么得把几十 MB 的 APK 读进内存（手机上会直接崩）。
+   顺序触发反而更稳：单个失败不影响其他，进度条能如实反映「第几个」，
+   用户在系统通知栏里看到的就是 8 个独立下载，断哪个重下哪个。 */
+(function(){
+  var box=document.getElementById('bulk');
+  if(!box) return;
+  var apps=[];  /* {url,name,size} */
+  document.querySelectorAll('[data-apk]').forEach(function(el){
+    apps.push({url:el.getAttribute('data-apk'),
+               name:el.getAttribute('data-apk-name')||'apk',
+               size:parseInt(el.getAttribute('data-apk-size')||'0',10)});
+  });
+  var q=document.getElementById('queue'),
+      bar=q?q.querySelector('.bar i'):null,
+      num=q?q.querySelector('.n'):null,
+      now=q?q.querySelector('.qn'):null,
+      stop=false;
+
+  function human(n){
+    if(!n) return '';
+    if(n<1048576) return Math.round(n/1024)+' KB';
+    return (n/1048576).toFixed(1)+' MB';
+  }
+  function fire(app){
+    var a=document.createElement('a');
+    a.href=app.url; a.download=app.name; a.rel='noopener';
+    /* 必须挂进 DOM 再点，部分移动端浏览器对游离节点不理会 */
+    document.body.appendChild(a); a.click();
+    setTimeout(function(){a.remove()},0);
+  }
+  function run(){
+    stop=false;
+    var i=0;
+    if(q){q.classList.add('on');
+      var x=q.querySelector('.qx');
+      if(x) x.onclick=function(){stop=true;q.classList.remove('on')};
+    }
+    function step(){
+      if(stop) return;
+      if(i>=apps.length){
+        if(bar) bar.style.width='100%';
+        if(num) num.textContent=apps.length+' / '+apps.length;
+        if(now) now.textContent='已全部发起，请在系统下载通知里确认完成。';
+        setTimeout(function(){if(q)q.classList.remove('on')},4000);
+        return;
+      }
+      var app=apps[i];
+      fire(app);
+      i++;
+      if(bar) bar.style.width=(i/apps.length*100)+'%';
+      if(num) num.textContent=i+' / '+apps.length;
+      if(now) now.textContent='正在下载：'+app.name+(app.size?' · '+human(app.size):'');
+      /* 间隔久一点：手机上同时弹 8 个下载会被系统节流，也会把「允许下载」弹窗堆成一串 */
+      setTimeout(step,1600);
+    }
+    setTimeout(step,60);
+  }
+  box.addEventListener('click',function(e){
+    var t=e.target.closest ? e.target.closest('[data-bulk]') : null;
+    if(t) run();
+  });
+})();
+"""
+
+def page(site, title, body, depth=0, search=False, store=False):
     prefix = "../" * depth
     extra = f"<script>{SEARCH_JS}</script>" if search else ""
+    if store:
+        extra += f"<script>{STORE_JS}</script>"
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -220,6 +377,7 @@ def page(site, title, body, depth=0, search=False):
 <span class="brand">🧊 <em>ice</em> 工坊</span>
 <nav>
 <a href="{prefix}index.html">全部项目</a>
+<a href="{prefix}store.html">应用商店</a>
 <a href="https://github.com/{site['author']}">GitHub</a>
 </nav>
 </div></header>
@@ -240,6 +398,10 @@ def badge(text, kind):
 
 
 def build(site, groups, projects):
+    # 可安装集合先算：首页 hero 与商店页都要用，不能等商店页渲染完才知道
+    apps = [p for p in projects if p["installable"]]
+    n_apps = len(apps)
+    total = sum(p["size_bytes"] for p in apps)
     if OUT.exists():
         shutil.rmtree(OUT)
     OUT.mkdir(parents=True)
@@ -292,6 +454,9 @@ def build(site, groups, projects):
 <p class="kicker">{esc(site['tagline'])}</p>
 <h1>{esc(site['name'])}</h1>
 <p class="lead">{esc(site['desc'])}</p>
+<div class="actions">
+<a class="btn primary" href="store.html">🧊 打开应用商店（{n_apps} 个可安装）</a>
+</div>
 </div>
 <div class="stats">
 <div><b>{len(projects)}</b>个作品</div>
@@ -348,6 +513,9 @@ def build(site, groups, projects):
 {''.join(pager)}"""
         (OUT / f'{p["id"]}.html').write_text(page(site, f'{p["name"]} · {site["name"]}', b), encoding="utf-8")
 
+    # ---- 应用商店 ----
+    build_store(site, groups, projects)
+
     # 404 兜底（GitHub Pages 会用它）
     body404 = ('<div class="hero"><h1>页面不存在</h1>'
                '<p class="lead">链接可能已经变了。回首页看看全部项目。</p>'
@@ -357,8 +525,112 @@ def build(site, groups, projects):
     # CNAME：GitHub Pages 绑定自定义域名的唯一凭据
     (OUT / "CNAME").write_text(site["domain"] + "\n", encoding="utf-8")
     (OUT / ".nojekyll").write_text("", encoding="utf-8")
-    return len(projects)
+    return len(projects), n_apps, total
 
+ICONS = {
+    "icescribe": "🎙", "modelscopebrowser": "🤖", "kayago": "⚫", "icescan": "📄",
+    "icebrowser": "🌐", "icereading": "📖", "musicfusion": "🎵", "musicfusionai": "✨",
+    "frontier": "🧠", "icellm": "🖥", "iceproxy": "🔌",
+}
+
+
+def store_app_row(p, prefix=""):
+    """商店列表里的一行。有 APK 就放下载按钮，没有就说清楚「它不是安装包」。"""
+    ico = ICONS.get(p["id"], "📦")
+    st, kind = STATUS_LABEL.get(p["status"], ("", ""))
+    name = f'<a href="{prefix}{p["url"]}">{esc(p["name"])}</a>'
+
+    meta = []
+    if p["version"]:
+        meta.append(f'<span class="ver">{esc(p["version"])}</span>')
+    if p["size_text"]:
+        meta.append(f'<span>{p["size_text"]}</span>')
+    if p.get("min_android"):
+        meta.append(f'<span>Android {esc(p["min_android"])}+</span>')
+    if p["published_at"]:
+        meta.append(f'<span>{esc(p["published_at"])}</span>')
+    if p["downloads"]:
+        meta.append(f'<span>{p["downloads"]} 次下载</span>')
+    meta_html = '<span class="dot">·</span>'.join(meta)
+
+    if p["installable"]:
+        act = (f'<a class="btn primary" href="{p["dl_release"]}" '
+               f'data-apk="{p["dl_release"]}" data-apk-name="{esc(p["repo"])}.apk" '
+               f'data-apk-size="{p["size_bytes"]}">⬇ {p["size_text"] or "下载"}</a>'
+               f'<a class="btn" href="{prefix}{p["url"]}">详情</a>')
+        cls = "app"
+    else:
+        act = (f'<a class="btn" href="{p["repo_url"]}">去仓库</a>'
+               f'<a class="btn" href="{prefix}{p["url"]}">详情</a>')
+        cls = "app none"
+
+    badges = "".join(badge(t, "") for t in p["tags"][:2]) + badge(st, kind)
+    return (f'<div class="{cls}">'
+            f'<div class="ico">{ico}</div>'
+            f'<div><div class="nm">{name}{badges}</div>'
+            f'<div class="meta">{meta_html}</div>'
+            f'<div class="pitch">{p["pitch"]}</div></div>'
+            f'<div class="act">{act}</div></div>')
+
+
+def build_store(site, groups, projects):
+    apps = [p for p in projects if p["installable"]]
+    others = [p for p in projects if not p["installable"]]
+    total_bytes = sum(p["size_bytes"] for p in apps)
+    n_apps, total = len(apps), total_bytes
+
+    bulk = f"""<div class="bulk" id="bulk">
+<div class="row">
+<div class="grow">
+<b>一次下齐全部 {len(apps)} 个应用</b>
+<span>共 <span class="tot">{human_size(total_bytes)}</span>，
+顺序发起 {len(apps)} 个下载，中途可停。每个包独立下载，断哪个重下哪个。</span>
+</div>
+<button class="btn primary" type="button" data-bulk="1">⬇ 一键下载全部（{human_size(total_bytes)}）</button>
+</div>
+</div>"""
+
+    rows = "".join(store_app_row(p) for p in apps)
+    other_rows = "".join(store_app_row(p) for p in others)
+
+    body = f"""<div class="storehead">
+<h1>{esc(site['store_name'])}</h1>
+<span class="tag">{esc(site['store_tagline'])}</span>
+</div>
+<p style="color:var(--muted);max-width:64ch">
+下面 {len(apps)} 个安装包全部来自本账号各仓库的 GitHub Release，
+版本号、体积、发布时间都是构建时从 Release 元数据里取的，不是写死的文案。
+没有广告 SDK、没有追踪、没有账号体系——这一点和它们本来的实现一致。
+</p>
+{bulk}
+<h2 style="margin-top:2.4em">可安装应用（{len(apps)}）</h2>
+<div class="applist">{rows}</div>
+<h2>不是安装包（{len(others)}）</h2>
+<p style="color:var(--muted);font-size:.9rem">
+这几个是脚本、服务端或纯静态站，本来就没有 APK。放进商店页只是为了让「账号里有什么」一眼看全，
+按钮指向仓库，不伪造一个包。
+</p>
+<div class="applist">{other_rows}</div>
+<details class="help">
+<summary>装不上 / 下载被拦住了怎么办</summary>
+<ol>
+<li>Android 8.0 起，浏览器下载的 APK 需要先允许「安装未知应用」——在系统弹窗里点允许即可。</li>
+<li>部分机型会提示「此类文件可能有害」，这是对非商店来源 APK 的通用提示，选择仍要安装。</li>
+<li>如果浏览器把文件存成了 <code>.bin</code> 或没有后缀，重命名回 <code>.apk</code> 再装。</li>
+<li>一键下载会依次发起多个请求，若系统把后续下载合并或拦截，回到上面列表单独点即可。</li>
+<li>校验完整性：页面上显示的体积就是 Release 里资源的字节数，下载后可自行比对。</li>
+</ol>
+</details>
+<div class="queue" id="queue">
+<div class="qh"><span>批量下载</span><span class="n">0 / 0</span>
+<button class="qx" type="button">停止</button></div>
+<div class="bar"><i></i></div>
+<div class="qn">准备中…</div>
+</div>"""
+
+    (OUT / "store.html").write_text(
+        page(site, f"{site['store_name']} · {site['name']}", body, 0, store=True),
+        encoding="utf-8")
 
 def main():
     global OUT
@@ -367,8 +639,9 @@ def main():
     args = ap.parse_args()
     OUT = Path(args.out)
     site, groups, projects = load()
-    n = build(site, groups, projects)
+    n, n_apps, total = build(site, groups, projects)
     print(f"构建完成：{n} 个项目 → {OUT}")
+    print(f"应用商店：{n_apps} 个可安装包，共 {human_size(total)}")
     print(f"首页：{OUT / 'index.html'}")
     print(f"CNAME：{site['domain']}")
 
