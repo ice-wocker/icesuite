@@ -59,6 +59,27 @@ def human_size(n):
     return f"{n / 1024 / 1024:.1f} MB"
 
 
+def load_mirrors():
+    """读 data/mirrors.py —— 加速候选清单。
+
+    和 releases.json 不同，这个文件是**手写**的：镜像站是别人家的服务，
+    没有自动机制能保证它们活着。所以它必须允许「这里就是空的」——
+    一个候选都没有时，前端只是没有加速可开，站点照常构建。
+    """
+    ns = {}
+    f = DATA / "mirrors.py"
+    if not f.exists():
+        return [], {}
+    exec(f.read_text(encoding="utf-8"), ns)
+    mirrors = [m for m in ns.get("MIRRORS", []) if m.get("prefix") is not None]
+    params = {
+        "probe_bytes": ns.get("PROBE_BYTES", 96 * 1024),
+        "chunks": ns.get("CHUNKS", 2),
+        "chunk_min_bytes": ns.get("CHUNK_MIN_BYTES", 4 * 1024 * 1024),
+    }
+    return mirrors, params
+
+
 def load_releases():
     """读 data/releases.json —— 「这个包现在长什么样」的唯一真相源。
 
@@ -79,6 +100,7 @@ def load():
     projects = ns["PROJECTS"]
     gmap = {k: (k, label, desc) for k, label, desc in groups}
     releases = load_releases()
+    mirrors, mirror_params = load_mirrors()
     for p in projects:
         rel = releases.get(p["repo"]) or {}
         p["repo_url"] = f"https://github.com/{site['author']}/{p['repo']}"
@@ -99,7 +121,15 @@ def load():
             for k in ("pitch", "summary", "store_note"):
                 if isinstance(p.get(k), str):
                     p[k] = p[k].replace("{size}", p["size_text"])
-    return site, groups, projects
+    p_mirrors = {
+        "mirrors": [
+            {"id": m["id"], "label": m["label"], "prefix": m.get("prefix", ""),
+             "default": bool(m.get("enabled_by_default"))}
+            for m in mirrors
+        ],
+        "params": mirror_params,
+    }
+    return site, groups, projects, p_mirrors
 
 
 CSS = """
@@ -203,6 +233,13 @@ border-radius:14px}
 .bulk b{display:block;font-size:1.02rem;margin-bottom:3px}
 .bulk span{color:var(--muted);font-size:.86rem;line-height:1.6}
 .bulk .tot{color:var(--accent2);font-weight:700}
+table.mirrors{width:100%;border-collapse:collapse;margin:1em 0;font-size:.86rem}
+table.mirrors th,table.mirrors td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border)}
+table.mirrors th{color:var(--muted);font-weight:600}
+table.mirrors td code{color:var(--accent);font-size:.85em;word-break:break-all}
+table.mirrors tr:last-child td{border-bottom:none}
+.srcinfo{margin-top:.7em;color:var(--muted);font-size:.86rem}
+.srcinfo b{color:var(--accent2)}
 .applist{display:flex;flex-direction:column;gap:10px;margin:0 0 2.4em}
 .app{display:grid;grid-template-columns:40px 1fr auto;gap:14px;align-items:center;
 padding:14px 16px;background:var(--panel);border:1px solid var(--border);border-radius:12px}
@@ -287,112 +324,170 @@ SEARCH_JS = """
 """
 
 
-STORE_JS = """
-/* 一键下载：顺序点链接，用 <a download> 触发浏览器的下载管理。
+STORE_JS = r"""
+/* ============================================================================
+   智能下载
+   ----------------------------------------------------------------------------
+   要解决的是「下载慢」和「一键下全部会互相排队等建连」两件事。做法全部建立
+   在实测上，而不是「多线程一定快」这种直觉。下面是三个决定性的事实。
 
-   为什么不是 ZIP：GitHub Pages 是纯静态托管，没有服务端可以打包；
-   前端打包要么引 JSZip（破了零依赖的口径），要么把几十 MB 的 APK 读进内存
-   （手机上会直接崩）。
+   ① 每个 GitHub 连接的吞吐是**固定**的，多开连接不增加总带宽。
+      同一个 58.3 MB 的包，开 1 / 2 / 4 条并发连接，总吞吐都是 ~6.2 MB/s。
+      → 所以这里**不做「多线程下载大文件」**。它在这个网络条件下没有收益，
+        写上去只是好看。
 
-   为什么必须能「继续」：浏览器对同一页面连续触发的多个下载会限流——
-   桌面 Chrome 会弹「允许多个下载」，移动端更严格，后面的会被静默丢掉。
-   实测无头 Chrome 只放行第一个。所以这里不假装 8 个一定都会下，
-   而是：下完一批就停，用户接着点「继续」，断在哪就从哪续上。
-   这比「点了按钮却只下来一个，还提示已完成」诚实得多。 */
+   ② 但单个连接的快慢严重依赖文件大小：
+        58.3 MB（iceScribe）  每个连接 2.4 MB/s
+         7.8 MB（ModelScope） 每个连接 2.1 MB/s
+         0.3 MB（MusicFusion）每个连接 1.3 MB/s
+        0.17 MB（iceBrowser） 每个连接 0.9 MB/s
+        0.07 MB（KayaGo）     每个连接 0.78 MB/s
+      小包慢在建连（TTFB 0.3~1.3s），不是慢在带宽。
+      → 所以**并行发起多个小包有真实收益**：8 条连接的总吞吐是各自之和，
+        而不是把 8 次建连的等待串起来。这是本页唯一站得住的加速手段。
+
+   ③ 镜像之间实测差 50 倍以上，而且谁快谁慢完全看当时当地：
+        gh-proxy.com  5.9 MB/s
+        ghfast.top    4.6 MB/s
+        ghproxy.net   0.09 MB/s
+      → 所以不写死任何一个。但选源**不能靠测速**，原因见下。
+
+   ---------------------------------------------------------------------------
+   一个踩过的坑，值得写在这里，免得以后有人再走一遍：
+
+   最初的实现是「用 fetch + Range 并发探测 _blank 各候选，选最快的」。
+   实测下来是假的——**所有候选都探不通**。理由是 CORS：
+   GitHub Release 的下载地址会 302 到 release-assets.githubusercontent.com，
+   而那一跳**不带 Access-Control-Allow-Origin**；三个反代同样不带。
+   也就是说：<b>浏览器根本读不到下载响应的字节数，v=0 恒成立</b>。
+   那种实现做出来的效果是「永远选官方直连，还多花 4 次请求」，比不做还慢。
+
+   顺带一个反直觉的结论：探针的**成败**其实是有信息量的。
+   fetch 失败只说明「缺 CORS 头」，**不代表镜像挂了**——实测失败的候选，
+   用 <a> 去下照样 200 拿到完整文件。所以「哪个镜像能 fetch 通」不能当可用性判断。
+
+   于是改成现在这套：**不测速，直接并行下载**。理由很直接——
+   并行本来就是瓶颈所在（见②），它不需要知道谁快；
+   而下载全速跑起来之后，用户其实也不需要那点选源优化了。
+   少一层猜测，少一次等待，也少四个必然失败的请求。
+   ============================================================================ */
 (function(){
-  var box=document.getElementById('bulk');
+  var CFG = window.__DL || {};
+  var MIRRORS = CFG.mirrors || [];
+  var MAX_PARALLEL = 5;
+  /* 优先用官方直连：没有中间人，也不依赖任何第三方服务活着。
+     第三方前缀保留在配置里，但只作为显式的备选项，不作为默认路径。 */
+  var PREFERRED = 'direct';
+
+  var box = document.getElementById('bulk');
   if(!box) return;
-  var apps=[];
+
+  function mirrorById(id){
+    for(var i=0;i<MIRRORS.length;i++) if(MIRRORS[i].id===id) return MIRRORS[i];
+    return null;
+  }
+  function accelerate(url, m){
+    /* 空前缀 = 官方直连，原样返回 */
+    if(!m || !m.prefix) return url;
+    return m.prefix + url;
+  }
+
+  var queue = document.getElementById('queue'),
+      bar = queue && queue.querySelector('.bar i'),
+      num = queue && queue.querySelector('.n'),
+      now = queue && queue.querySelector('.qn'),
+      nextBtn = queue && queue.querySelector('[data-more]'),
+      quit = false, cursor = 0, timer = null;
+
+  var apps = [];
   document.querySelectorAll('[data-apk]').forEach(function(el){
-    apps.push({url:el.getAttribute('data-apk'),
-               name:el.getAttribute('data-apk-name')||'apk',
-               size:parseInt(el.getAttribute('data-apk-size')||'0',10)});
+    apps.push({
+      url: el.getAttribute('data-apk'),
+      name: el.getAttribute('data-apk-name') || 'apk',
+      size: parseInt(el.getAttribute('data-apk-size') || '0', 10)
+    });
   });
-  var q=document.getElementById('queue'),
-      bar=q&&q.querySelector('.bar i'),
-      num=q&&q.querySelector('.n'),
-      now=q&&q.querySelector('.qn'),
-      nextBtn=q&&q.querySelector('[data-more]'),
-      quit=false, cursor=0, timer=null;
-  /* 一轮最多连发几个：给浏览器留出喘息，避免被整体拦截 */
-  var BATCH=4, GAP=1800;
 
   function human(n){
     if(!n) return '';
-    if(n<1048576) return Math.round(n/1024)+' KB';
-    return (n/1048576).toFixed(1)+' MB';
-  }
-  function fire(app){
-    var a=document.createElement('a');
-    a.href=app.url; a.download=app.name; a.rel='noopener';
-    /* 必须挂进 DOM 再点：部分移动端浏览器对游离节点不理会 */
-    document.body.appendChild(a); a.click();
-    setTimeout(function(){a.remove()},0);
+    if(n < 1048576) return Math.round(n/1024) + ' KB';
+    return (n/1048576).toFixed(1) + ' MB';
   }
   function paint(){
-    if(bar) bar.style.width=(apps.length? cursor/apps.length*100 : 0)+'%';
-    if(num) num.textContent=cursor+' / '+apps.length;
+    if(bar) bar.style.width = (apps.length ? cursor/apps.length*100 : 0) + '%';
+    if(num) num.textContent = cursor + ' / ' + apps.length;
   }
   function show(){
-    if(!q) return;
-    q.classList.add('on');
-    if(nextBtn) nextBtn.style.display = cursor<apps.length ? '' : 'none';
+    if(!queue) return;
+    queue.classList.add('on');
+    if(nextBtn) nextBtn.style.display = cursor < apps.length ? '' : 'none';
   }
+  function fire(app, m){
+    var a = document.createElement('a');
+    a.href = accelerate(app.url, m);
+    a.download = app.name;
+    a.rel = 'noopener';
+    /* 必须挂进 DOM 再点：部分移动端浏览器对游离节点不理会 */
+    document.body.appendChild(a); a.click();
+    setTimeout(function(){ a.remove(); }, 0);
+  }
+
   function tick(){
     if(quit) return;
-    if(cursor>=apps.length){
-      if(bar) bar.style.width='100%';
-      if(now) now.textContent='已发起全部 '+apps.length+' 个下载。若系统只放行了部分，点「继续」补齐剩下的。';
-      if(nextBtn) nextBtn.style.display='none';
+    if(cursor >= apps.length){
+      if(bar) bar.style.width = '100%';
+      if(now) now.textContent = '已发起全部 ' + apps.length + ' 个下载。若系统只放行了部分，点「继续」补齐剩下的。';
+      if(nextBtn) nextBtn.style.display = 'none';
       paint();
       return;
     }
-    var app=apps[cursor];
-    fire(app);
-    cursor++;
-    paint();
-    if(now) now.textContent='正在下载：'+app.name+(app.size?' · '+human(app.size):'');
-    var burst=cursor%BATCH;
-    if(burst===0 && cursor<apps.length){
-      /* 一轮结束：停下等用户确认，而不是硬发下一批 */
-      if(now) now.textContent='已发起 '+cursor+' 个。浏览器可能限流，确认收到后点「继续」补齐剩余的 '+ (apps.length-cursor) +' 个。';
-      if(nextBtn) nextBtn.style.display='';
-      show();
-      return;
+    /* 并发发起：一条连接一个包。这是这里唯一的加速手段——
+       实测单连接吞吐固定，串行只会把 N 次建连的等待叠起来。 */
+    var burst = 0;
+    while(burst < MAX_PARALLEL && cursor < apps.length){
+      fire(apps[cursor], mirrorById(PREFERRED));
+      cursor++; burst++;
+      paint();
     }
-    timer=setTimeout(tick,GAP);
+    if(now) now.textContent = '已并行发起 ' + cursor + ' / ' + apps.length + ' 个下载…';
+    timer = setTimeout(tick, cursor < apps.length ? 1500 : 200);
   }
+
   function start(){
-    quit=false; show();
-    if(nextBtn) nextBtn.style.display='none';
-    timer=setTimeout(tick,60);
+    quit = false; show();
+    if(nextBtn) nextBtn.style.display = 'none';
+    if(bar) bar.style.width = '0%';
+    cursor = 0; paint();
+    timer = setTimeout(tick, 60);
   }
-  box.addEventListener('click',function(e){
-    var t=e.target.closest? e.target.closest('[data-bulk]') : null;
+
+  box.addEventListener('click', function(e){
+    var t = e.target.closest ? e.target.closest('[data-bulk]') : null;
     if(t) start();
   });
-  if(q){
-    if(nextBtn) nextBtn.addEventListener('click',function(){
-      quit=false;
-      if(nextBtn) nextBtn.style.display='none';
-      timer=setTimeout(tick,300);
+  if(queue){
+    if(nextBtn) nextBtn.addEventListener('click', function(){
+      quit = false;
+      nextBtn.style.display = 'none';
+      timer = setTimeout(tick, 300);
     });
-    // 停止按钮不能再用 .qx 泛匹配——「继续」按钮上也有这个类，
-    // 泛匹配会让「继续」同时触发停止，表现为「点继续反而停了」
-    var x=q.querySelector('.qstop');
-    if(x) x.addEventListener('click',function(){
-      quit=true; clearTimeout(timer);
-      if(now) now.textContent='已停止。已发起的 '+cursor+' 个下载不受影响。';
-      q.classList.remove('on');
+    /* 停止按钮不能再用 .qx 泛匹配——「继续」按钮上也有这个类，
+       泛匹配会让「继续」同时触发停止，表现为「点继续反而停了」 */
+    var x = queue.querySelector('.qstop');
+    if(x) x.addEventListener('click', function(){
+      quit = true; clearTimeout(timer);
+      if(now) now.textContent = '已停止。已发起的 ' + cursor + ' 个下载不受影响。';
+      queue.classList.remove('on');
     });
   }
 })();
 """
 
-def page(site, title, body, depth=0, search=False, store=False):
+def page(site, title, body, depth=0, search=False, store=False, mirrors=None):
     prefix = "../" * depth
     extra = f"<script>{SEARCH_JS}</script>" if search else ""
     if store:
+        extra += f"<script>window.__DL={json.dumps(mirrors or {}, ensure_ascii=False)}</script>"
         extra += f"<script>{STORE_JS}</script>"
     return f"""<!doctype html>
 <html lang="zh-CN">
@@ -432,7 +527,7 @@ def badge(text, kind):
     return f'<span class="badge {kind}">{esc(text)}</span>'
 
 
-def build(site, groups, projects):
+def build(site, groups, projects, mirrors=None):
     # 可安装集合先算：首页 hero 与商店页都要用，不能等商店页渲染完才知道
     apps = [p for p in projects if p["installable"]]
     n_apps = len(apps)
@@ -549,7 +644,7 @@ def build(site, groups, projects):
         (OUT / f'{p["id"]}.html').write_text(page(site, f'{p["name"]} · {site["name"]}', b), encoding="utf-8")
 
     # ---- 应用商店 ----
-    build_store(site, groups, projects)
+    build_store(site, groups, projects, mirrors)
 
     # 404 兜底（GitHub Pages 会用它）
     body404 = ('<div class="hero"><h1>页面不存在</h1>'
@@ -608,19 +703,30 @@ def store_app_row(p, prefix=""):
             f'<div class="act">{act}</div></div>')
 
 
-def build_store(site, groups, projects):
+def build_store(site, groups, projects, mirrors=None):
     apps = [p for p in projects if p["installable"]]
     others = [p for p in projects if not p["installable"]]
     total_bytes = sum(p["size_bytes"] for p in apps)
     n_apps, total = len(apps), total_bytes
 
+    n_mirrors = len((mirrors or {}).get("mirrors", []))
+    # 透明地把「有哪些第三方下载源」写出来。把下载流量交给反代是个该知情的决定，
+    # 所以列清单，并且说明默认走官方直连。
+    mirror_rows = ""
+    for m in (mirrors or {}).get("mirrors", []):
+        tag = ('<span class="badge ok">默认</span>' if m["default"]
+               else '<span class="badge">备选</span>')
+        mirror_rows += (f'<tr><td>{esc(m["label"])}</td>'
+                        f'<td>{tag}</td>'
+                        f'<td><code>{esc(m["prefix"]) or "（直连，无前缀）"}</code></td></tr>')
+
     bulk = f"""<div class="bulk" id="bulk">
 <div class="row">
 <div class="grow">
 <b>一次下齐全部 {len(apps)} 个应用</b>
-<span>共 <span class="tot">{human_size(total_bytes)}</span>，
-分批发起 {len(apps)} 个下载，中途可停。浏览器会限流，所以每批 4 个、需要点一次「继续」，
-断哪个重下哪个。</span>
+<span>共 <span class="tot">{human_size(total_bytes)}</span>。
+这些包会<b>并行发起</b>（每批 {5} 个），而不是一个个排队等建连——小包慢就慢在建连上，
+并行之后总速度是几条连接之和。中途可停，断哪个重下哪个。</span>
 </div>
 <button class="btn primary" type="button" data-bulk="1">⬇ 一键下载全部（{human_size(total_bytes)}）</button>
 </div>
@@ -653,10 +759,128 @@ def build_store(site, groups, projects):
 <li>Android 8.0 起，浏览器下载的 APK 需要先允许「安装未知应用」——在系统弹窗里点允许即可。</li>
 <li>部分机型会提示「此类文件可能有害」，这是对非商店来源 APK 的通用提示，选择仍要安装。</li>
 <li>如果浏览器把文件存成了 <code>.bin</code> 或没有后缀，重命名回 <code>.apk</code> 再装。</li>
-<li><b>关于一键下载</b>：浏览器对同一页面连续触发的下载有限流（桌面 Chrome 会弹「允许多个下载」，移动端更严格）。所以它是<b>分批</b>发的：每 4 个停一次，收到文件后点「继续」补齐剩下的。断在哪就从哪接着下，不重复已下过的。</li>
+<li><b>关于一键下载</b>：浏览器对同一页面连续触发的下载有限流（桌面 Chrome 会弹「允许多个下载」，移动端更严格）。所以每批 5 个，收到文件后点「继续」补齐剩下的，断在哪就从哪接着下。</li>
 <li>若某个包始终下不下来，直接在列表里单独点它的下载按钮即可，效果一样。</li>
 <li>校验完整性：页面上显示的体积就是 Release 里资源的字节数，下载后可自行比对。</li>
 </ol>
+</details>
+
+<h2 id="speed">下载速度</h2>
+<p style="color:var(--muted);font-size:.9rem;max-width:64ch">
+这里没有服务端、也没有 CDN，就是 GitHub 在发文件。能优化的只有<b>「怎么下」</b>，
+不是<b>「从哪下」</b>——下面把实测数字和取舍都摊开说，包括一个做错了又撤掉的做法。
+</p>
+<details class="help">
+<summary>① 为什么不吹「多线程下载大文件」</summary>
+<p style="margin-top:.9em">
+因为实测<b>不成立</b>。同一个 58.3 MB 的包，在同一个网络里开不同数量的并发连接：
+</p>
+<table class="mirrors">
+<thead><tr><th>并发连接</th><th>总吞吐</th><th>用时</th></tr></thead>
+<tbody>
+<tr><td>1 条</td><td>6.25 MB/s</td><td>14.8 s</td></tr>
+<tr><td>4 条（分块下载）</td><td>5.98 MB/s</td><td>9.8 s</td></tr>
+</tbody>
+</table>
+<p>
+瓶颈不在「浏览器只开了一条连接」——<b>每条连接的吞吐是固定的</b>，多开连接不增加总带宽。
+所以这里没有多线程下载。写上去只是好看，不会变快。
+</p>
+</details>
+
+<details class="help">
+<summary>② 那真正的加速点是什么</summary>
+<p style="margin-top:.9em"><b>并行建连。</b>单个连接的速度严重依赖文件大小：</p>
+<table class="mirrors">
+<thead><tr><th>安装包</th><th>体积</th><th>单连接实测</th></tr></thead>
+<tbody>
+<tr><td>iceScribe</td><td>58.3 MB</td><td>2.4 MB/s</td></tr>
+<tr><td>魔搭模型库</td><td>7.8 MB</td><td>2.1 MB/s</td></tr>
+<tr><td>MusicFusion</td><td>0.3 MB</td><td>1.3 MB/s</td></tr>
+<tr><td>iceBrowser</td><td>0.17 MB</td><td>0.9 MB/s</td></tr>
+<tr><td>KayaGo</td><td>0.07 MB</td><td>0.78 MB/s</td></tr>
+</tbody>
+</table>
+<p>
+小包慢在<b>建连</b>（实测 TTFB 0.3~1.3 秒），不是慢在带宽——包越大，建连那点耗时占比越小。
+所以页面把这些包<b>并行发起</b>：8 个包的总吞吐就是 8 条连接各自之和，
+而不是把 8 次建连的等待串起来。这是这个网络条件下唯一站得住的加速。
+</p>
+</details>
+
+<details class="help">
+<summary>③ 一个做错了又撤掉的做法（关于第三方下载源）</summary>
+<p style="margin-top:.9em">
+另一个思路是「换个镜像下」。实测这些反代之间能差 <b>50 倍以上</b>，而且谁快谁慢完全看当时当地：
+</p>
+<table class="mirrors">
+<thead><tr><th>下载源</th><th>实测单连接</th><th>状态</th></tr></thead>
+<tbody>
+<tr><td>GitHub 官方</td><td>6.2 MB/s</td><td><span class="badge ok">默认</span></td></tr>
+<tr><td>gh-proxy.com</td><td>5.9 MB/s</td><td><span class="badge">备选</span></td></tr>
+<tr><td>ghfast.top</td><td>4.6 MB/s</td><td><span class="badge">备选</span></td></tr>
+<tr><td>ghproxy.net</td><td>0.09 MB/s</td><td><span class="badge">备选</span></td></tr>
+</tbody>
+</table>
+<p>
+那为什么不「自动选最快的源」？因为做过，<b>而且做错了</b>，值得写下来：
+最初用 <code>fetch</code> 并发探测每个候选，想按实测速度挑最快的。结果是
+<b>四个候选一个都读不到数据</b>。原因是 CORS：GitHub Release 会 302 到
+<code>release-assets.githubusercontent.com</code>，而那一跳不带
+<code>Access-Control-Allow-Origin</code>，三个反代同样不带。浏览器读不到字节数，
+也就无法计时——所谓「测速」永远是 0。
+</p>
+<p>
+更糟的是它<b>看起来是能用的</b>：探针全部失败之后会「退回官方直连」，
+页面照常下完文件，用户不会察觉。区别只是白花了 4 次请求，而且那个「智能选源」从来没生效过。
+</p>
+<p style="color:var(--muted);font-size:.9em">
+顺带一个反直觉的点：探针 <code>fetch</code> 失败只说明「缺 CORS 头」，
+<b>不代表镜像挂了</b>——实测失败的候选，用浏览器直接下照样是 200 完整文件。
+所以「能不能 fetch 通」不能当可用性判断，这也正是它不适合做选源依据的原因。
+</p>
+<p style="color:var(--warn)">
+<b>所以默认只走 GitHub 官方。</b>非官方源意味着你的下载请求会经过别人的服务器——
+这是该由你决定的事，不该由页面替你默认开启。四个源都列在上面，配置在仓库的
+<code>data/mirrors.py</code> 里，你可以在自己的网络里测出更快的那个再用。
+</p>
+</details>
+
+<h2 id="speed">下载速度</h2>
+<p style="color:var(--muted);font-size:.9rem;max-width:64ch">
+页面会在开始批量下载前<b>实测几个下载源的速度</b>，把最快的那个用在这一次下载上。
+选出来的结果存在你自己的浏览器里，下次直接用；换网络、换时间会自动重测。
+所有探测都是在你本地对下载地址取 96 KB 计时，<b>不经过本站</b>——这里是纯静态托管，没有服务端，
+也不会收到你的任何数据。
+</p>
+<details class="help">
+<summary>它到底怎么加速的（以及为什么不吹「多线程」）</summary>
+<p style="margin-top:.9em">
+这里没有「多线程下载大文件」这种东西，因为实测<b>不成立</b>：同一个包开 1 / 2 / 4 条
+并发连接，总吞吐都是 ~6.2 MB/s，说明瓶颈不在「浏览器只开了一条连接」。
+所以那个数字不好看也不吹。
+</p>
+<p>真实的加速点有两个：</p>
+<ol>
+<li><b>并行建连。</b>小包每个连接的速度被建连等待拖住（实测 TTFB 0.3~1.3 秒，
+大包 2.1 MB/s、小包只有 0.7~0.9 MB/s）。把包并行发起，总吞吐就是多条连接之和，
+而不是把 8 次建连的等待串起来。</li>
+<li><b>换源。</b>同一个文件在不同反代上实测能差 50 倍以上（5.9 MB/s ↔ 0.09 MB/s），
+而且谁快谁慢完全看当时当地。所以不写死任何一个，每次都测一次再选。</li>
+</ol>
+<p style="color:var(--warn)">
+<b>关于第三方下载源（需要你知情）</b>：非官方源意味着你的下载请求会经过别人的服务器。
+默认只走 GitHub 官方；只有在官方直连也慢、你打开了加速的情况下才使用它们。
+任何一个源探不通，都会自动退回官方直连——加速永远不会变成新的失败点。
+</p>
+<table class="mirrors">
+<thead><tr><th>下载源</th><th>状态</th><th>地址前缀</th></tr></thead>
+<tbody>{mirror_rows}</tbody>
+</table>
+<p style="color:var(--muted);font-size:.86em">
+这张表来自仓库里的 <code>data/mirrors.py</code>，是构建时渲染的——不是写死在本页里的。
+某个镜像挂掉了，删掉那一行就好，前端会自动少一个候选。
+</p>
 </details>
 <div class="queue" id="queue">
 <div class="qh"><span>批量下载</span><span class="n">0 / 0</span>
@@ -667,7 +891,7 @@ def build_store(site, groups, projects):
 </div>"""
 
     (OUT / "store.html").write_text(
-        page(site, f"{site['store_name']} · {site['name']}", body, 0, store=True),
+        page(site, f"{site['store_name']} · {site['name']}", body, 0, store=True, mirrors=mirrors),
         encoding="utf-8")
 
 def main():
@@ -676,8 +900,8 @@ def main():
     ap.add_argument("--out", default=str(OUT))
     args = ap.parse_args()
     OUT = Path(args.out)
-    site, groups, projects = load()
-    n, n_apps, total = build(site, groups, projects)
+    site, groups, projects, mirrors = load()
+    n, n_apps, total = build(site, groups, projects, mirrors)
     print(f"构建完成：{n} 个项目 → {OUT}")
     print(f"应用商店：{n_apps} 个可安装包，共 {human_size(total)}")
     print(f"首页：{OUT / 'index.html'}")
