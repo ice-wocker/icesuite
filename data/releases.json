@@ -1,6 +1,6 @@
 {
   "_note": "由 scripts/fetch_releases.py 从 GitHub API 生成，请勿手改。构建时只读本文件，不联网。",
-  "generated_at": "2026-09-30T10:03:13Z",
+  "generated_at": "2026-09-30T10:10:10Z",
   "owner": "ice-wocker",
   "releases": {
     "KayaGo": {
@@ -45,7 +45,7 @@
       "name": "v5.0.1 — 164 KB 的浏览器",
       "published_at": "2026-09-29",
       "size": 168531,
-      "tag": "v0.0.1-old",
+      "tag": "v5.0.1",
       "url": "https://github.com/ice-wocker/iceBrowser/releases/download/v5.0.1/icebrowser.apk"
     },
     "iceReading": {

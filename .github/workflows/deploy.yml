@@ -40,7 +40,7 @@ jobs:
           pages=$(find site -name '*.html' | wc -l)
           echo "生成 HTML 页面数: $pages"
           test "$pages" -ge 13
-          n=$(grep -c 'data-apk="' site/store.html)
+          n=$(grep -o 'data-apk="' site/store.html | wc -l)
           echo "商店页可下载: $n"
           test "$n" -ge 8
       # 发布前再跑一次自检：宁可不上线，也不让坏产物出去

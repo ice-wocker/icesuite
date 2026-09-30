@@ -30,7 +30,7 @@ jobs:
           test "$pages" -ge 13
           echo "页面数 $pages"
           # 商店页必须真的有可下载的应用，不能是空壳
-          n=$(grep -c 'data-apk="' site/store.html)
+          n=$(grep -o 'data-apk="' site/store.html | wc -l)
           test "$n" -ge 8
           echo "商店页可下载 $n 个"
 
