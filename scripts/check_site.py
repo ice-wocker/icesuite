@@ -164,21 +164,53 @@ def main():
         if re.search(r"fetch\s*\(", code):
             errors.append("商店页又出现了 fetch 调用——下载地址不带 CORS 头，"
                           "任何基于 fetch 的测速/选源都必然失败")
-        # 默认源必须是官方直连：把用户下载流量交给第三方不能是默认行为
-        if '"prefix": ""' not in store and "prefix\": \"\"" not in store:
-            errors.append("商店页没有配置官方直连源（空前缀）")
-        for label in ("GitHub 官方",):
+        # 官方直连必须存在且是兜底：加速源可以默认开，但官方这条不允许被删掉，
+        # 否则一旦所有反代挂掉就没有可退的路。
+        if '"prefix": ""' not in store and 'prefix\": \"' not in store:
+            errors.append("商店页没有配置官方直连源（空前缀）——加速源全挂时就无路可退")
+        if '"role": "fallback"' not in store and 'role\": \"fallback\"' not in store:
+            errors.append("商店页没有标记官方直连为兜底源（role=fallback）")
+        for label in ("GitHub 官方", "兜底"):
             if label not in store:
                 errors.append(f"商店页缺少下载源说明：{label}")
-        # 说明文案必须与实现一致：声称的并发数要真的是代码里的数
-        m = re.search(r"每批 (\d+) 个", store)
-        if not m:
+
+        # --- 地区选源逻辑的守卫 ---
+        # 需求是「默认开加速 / 按地区选源」。实现必须满足下面几条，
+        # 否则会退化成「永远直连」或「永远某个反代」——两种都不是按地区。
+        if not re.search(r"function\s+slowDirect\s*\(", store):
+            errors.append("商店页没有地区判断函数 slowDirect——"
+                          "「按用户所在地区选源」的逻辑不见了")
+        if "resolvedOptions" not in store or "timeZone" not in store:
+            errors.append("地区判断没有读时区（Intl.DateTimeFormat.timeZone）")
+        if "navigator.language" not in store and "navigator.languages" not in store:
+            errors.append("地区判断没有读 navigator.language(s)")
+        # 定义了还必须真的被调用。注意不能只搜 slowDirect()——函数声明本身
+        # 就长这样，那样写是橡皮图章（第一版就是，注入「永不调用」抓不到）。
+        # 要断言的是「调用出现在赋值/条件里」，所以连上下文一起钉。
+        if not re.search(r"[?:=(]\s*slowDirect\s*\(\s*\)", store):
+            errors.append("slowDirect 定义了却没有被调用（地区判断没生效）")
+        if "localStorage" not in store:
+            errors.append("用户切换下载源后没有持久化（localStorage）——"
+                          "用户改过的选择必须被记住")
+        # 状态条：默认开加速的前提是「走了第三方」这件事看得见
+        if 'id="srcbar"' not in store or 'id="srctoggle"' not in store:
+            errors.append("商店页缺少下载源状态条 / 切换按钮——"
+                          "默认开加速就必须让用户看得见、改得动")
+        # 说明文案必须与实现一致：声称的并发数要真的是代码里的数。
+        # 注意不能拿 "5" 当基准去比——那只是把常量抄了一遍，改 MAX_PARALLEL
+        # 时文案照样写着 5，脚本却仍然绿。必须拿代码里的值去比文案。
+        want = int(re.search(r"MAX_PARALLEL\s*=\s*(\d+)", store).group(1))
+        claims = set(re.findall(r"每批(?:并行发起)? (\d+) 个", store))
+        if not claims:
             errors.append("商店页没有写明每批并发几个下载")
-        elif m.group(1) != "5":
-            errors.append(f"商店页写「每批 {m.group(1)} 个」与实现 MAX_PARALLEL=5 不一致")
-        # 不能吹「多线程下载大文件」：实测无收益，写了就是假话
-        if "多线程下载" in store and "为什么不吹" not in store:
-            errors.append("商店页出现「多线程下载」却没有对应的实测说明")
+        for c in sorted(claims):
+            if int(c) != want:
+                errors.append(f"商店页写「每批 {c} 个」与代码里的 MAX_PARALLEL={want} 不一致")
+        # 不能吹「多线程下载大文件」：实测无收益，写了就是假话。
+        # 提到它就必须同时给出「实测不成立」的依据，否则就是在当卖点讲。
+        if "多线程下载" in store and "实测不成立" not in store:
+            errors.append("商店页提到「多线程下载」却没有说明它实测不成立——"
+                          "这会被读成卖点，而事实恰好相反")
 
     # --- 4. 外链可达性 ---
     checked = 0

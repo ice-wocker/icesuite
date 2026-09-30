@@ -73,9 +73,13 @@ def load_mirrors():
     exec(f.read_text(encoding="utf-8"), ns)
     mirrors = [m for m in ns.get("MIRRORS", []) if m.get("prefix") is not None]
     params = {
-        "probe_bytes": ns.get("PROBE_BYTES", 96 * 1024),
-        "chunks": ns.get("CHUNKS", 2),
-        "chunk_min_bytes": ns.get("CHUNK_MIN_BYTES", 4 * 1024 * 1024),
+        # 默认策略：auto = 先按地区判断该不该加速，再挑第一个可用的加速源。
+        # 刻意没有 probe_bytes / chunks 这类参数——它们是已证伪的 fetch 测速
+        # 与「多线程下载大文件」的残留，留着只会诱导别人重新捡起来。
+        "accel": ns.get("ACCEL_DEFAULT", "auto"),
+        "slow_direct_timezones": list(ns.get("SLOW_DIRECT_TIMEZONES", [])),
+        "slow_direct_langs": list(ns.get("SLOW_DIRECT_LANGS", [])),
+        "slow_direct_regions": list(ns.get("SLOW_DIRECT_REGIONS", [])),
     }
     return mirrors, params
 
@@ -124,7 +128,7 @@ def load():
     p_mirrors = {
         "mirrors": [
             {"id": m["id"], "label": m["label"], "prefix": m.get("prefix", ""),
-             "default": bool(m.get("enabled_by_default"))}
+             "role": m.get("role", "accelerator"), "note": m.get("note", "")}
             for m in mirrors
         ],
         "params": mirror_params,
@@ -240,6 +244,11 @@ table.mirrors td code{color:var(--accent);font-size:.85em;word-break:break-all}
 table.mirrors tr:last-child td{border-bottom:none}
 .srcinfo{margin-top:.7em;color:var(--muted);font-size:.86rem}
 .srcinfo b{color:var(--accent2)}
+.srcbar-wrap{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:1em 0 1.4em}
+.srcbar{flex:1 1 22ch;min-width:0;padding:10px 14px;border:1px solid var(--border);
+border-radius:10px;background:var(--panel);font-size:.88rem;color:var(--muted)}
+.srcbar b{color:var(--accent2);font-weight:600}
+.btn.small{padding:7px 14px;font-size:.85rem;white-space:nowrap;flex:0 0 auto}
 .applist{display:flex;flex-direction:column;gap:10px;margin:0 0 2.4em}
 .app{display:grid;grid-template-columns:40px 1fr auto;gap:14px;align-items:center;
 padding:14px 16px;background:var(--panel);border:1px solid var(--border);border-radius:12px}
@@ -326,77 +335,128 @@ SEARCH_JS = """
 
 STORE_JS = r"""
 /* ============================================================================
-   智能下载
+   智能下载 · 按地区选源 + 并行建连
    ----------------------------------------------------------------------------
-   要解决的是「下载慢」和「一键下全部会互相排队等建连」两件事。做法全部建立
-   在实测上，而不是「多线程一定快」这种直觉。下面是三个决定性的事实。
+   要解决两件事：①「从哪下」（源选得对不对）②「怎么下」（建连等得冤不冤）。
+   两件事的做法都得有实测依据，而不是「多线程一定快」「镜像一定比官方快」这种直觉。
+
+   ── 关于「怎么下」──
 
    ① 每个 GitHub 连接的吞吐是**固定**的，多开连接不增加总带宽。
       同一个 58.3 MB 的包，开 1 / 2 / 4 条并发连接，总吞吐都是 ~6.2 MB/s。
-      → 所以这里**不做「多线程下载大文件」**。它在这个网络条件下没有收益，
-        写上去只是好看。
+      → 所以**不做「多线程下载大文件」**。没有收益，写上去只是好看。
 
    ② 但单个连接的快慢严重依赖文件大小：
-        58.3 MB（iceScribe）  每个连接 2.4 MB/s
-         7.8 MB（ModelScope） 每个连接 2.1 MB/s
-         0.3 MB（MusicFusion）每个连接 1.3 MB/s
-        0.17 MB（iceBrowser） 每个连接 0.9 MB/s
-        0.07 MB（KayaGo）     每个连接 0.78 MB/s
+        58.3 MB（iceScribe）  2.4 MB/s
+         7.8 MB（ModelScope） 2.1 MB/s
+         0.3 MB（MusicFusion）1.3 MB/s
+        0.07 MB（KayaGo）     0.78 MB/s
       小包慢在建连（TTFB 0.3~1.3s），不是慢在带宽。
-      → 所以**并行发起多个小包有真实收益**：8 条连接的总吞吐是各自之和，
-        而不是把 8 次建连的等待串起来。这是本页唯一站得住的加速手段。
+      → **并行发起多个小包有真实收益**：总吞吐是各连接之和，而不是把 N 次
+        建连的等待串起来。这是本页唯一站得住的「怎么下」优化。
 
-   ③ 镜像之间实测差 50 倍以上，而且谁快谁慢完全看当时当地：
-        gh-proxy.com  5.9 MB/s
-        ghfast.top    4.6 MB/s
-        ghproxy.net   0.09 MB/s
-      → 所以不写死任何一个。但选源**不能靠测速**，原因见下。
+   ── 关于「从哪下」：为什么是按地区选，不是按测速选 ──
 
-   ---------------------------------------------------------------------------
-   一个踩过的坑，值得写在这里，免得以后有人再走一遍：
+   ③ 直连 GitHub 的体验是**按地区两极分化**的，而且这个差异是**稳定的**：
+      大陆普遍几百 KB/s 甚至断流，海外接近满速。稳定差异可以在本地推断，
+      不需要发任何探测请求。
 
-   最初的实现是「用 fetch + Range 并发探测 _blank 各候选，选最快的」。
-   实测下来是假的——**所有候选都探不通**。理由是 CORS：
-   GitHub Release 的下载地址会 302 到 release-assets.githubusercontent.com，
-   而那一跳**不带 Access-Control-Allow-Origin**；三个反代同样不带。
-   也就是说：<b>浏览器根本读不到下载响应的字节数，v=0 恒成立</b>。
-   那种实现做出来的效果是「永远选官方直连，还多花 4 次请求」，比不做还慢。
+      反过来，镜像之间快慢才是随机的（实测差 50 倍以上，5.9 MB/s ↔ 0.09 MB/s），
+      那部分**没有可靠的本地信号**，所以留给用户手动切，不猜。
 
-   顺带一个反直觉的结论：探针的**成败**其实是有信息量的。
-   fetch 失败只说明「缺 CORS 头」，**不代表镜像挂了**——实测失败的候选，
-   用 <a> 去下照样 200 拿到完整文件。所以「哪个镜像能 fetch 通」不能当可用性判断。
+   ④ 那为什么不用「实测速度自动选源」？因为做过，**而且是假的**：
+      最初用 fetch + Range 并发探测各候选，结果**四个候选一个都读不到数据**。
+      理由是 CORS：GitHub Release 会 302 到 release-assets.githubusercontent.com，
+      而那一跳**不带 Access-Control-Allow-Origin**；三个反代同样不带。
+      浏览器读不到响应字节数，计时恒为 0。
+      更糟的是它**看起来能用**：探针全失败会悄悄退回官方、页面照常下完，
+      没有任何报错——用户不会知道那个「智能选源」从来没生效过。
+      所以这里的判断**只用本地信号，一个网络请求都不发**，check_site.py 里还有
+      一条守卫禁止 fetch 出现在这个脚本里。
 
-   于是改成现在这套：**不测速，直接并行下载**。理由很直接——
-   并行本来就是瓶颈所在（见②），它不需要知道谁快；
-   而下载全速跑起来之后，用户其实也不需要那点选源优化了。
-   少一层猜测，少一次等待，也少四个必然失败的请求。
+   ⑤ 地区信号（全部本地、零请求）：
+        Intl.DateTimeFormat().resolvedOptions().timeZone   主要依据
+        navigator.language / languages                     辅助
+        navigator.connection.effectiveType                 仅 2g/3g 时升级为主推
+      命中「大陆时区/语言/地区」→ 判定直连大概率很慢 → 默认启用加速源；
+      否则默认官方直连（海外直连本来就不慢，套反代只是多一跳）。
+
+   ⑥ 「走了第三方」这件事必须**看得见**：顶部有一行状态显示当前用哪个源，
+      一点就能切换，选择存在 localStorage。加速源打不开时会**显式回退**到官方
+      并在界面上说明，不静默降级。默认开加速的前提，是它完全透明。
    ============================================================================ */
 (function(){
   var CFG = window.__DL || {};
   var MIRRORS = CFG.mirrors || [];
+  var P = CFG.params || {};
   var MAX_PARALLEL = 5;
-  /* 优先用官方直连：没有中间人，也不依赖任何第三方服务活着。
-     第三方前缀保留在配置里，但只作为显式的备选项，不作为默认路径。 */
-  var PREFERRED = 'direct';
+  var LSKEY = 'icesuite.dlsrc';
 
   var box = document.getElementById('bulk');
   if(!box) return;
 
-  function mirrorById(id){
+  function byId(id){
     for(var i=0;i<MIRRORS.length;i++) if(MIRRORS[i].id===id) return MIRRORS[i];
     return null;
   }
+  function direct(){ return byId('direct'); }
+  function accelerators(){
+    return MIRRORS.filter(function(m){ return m.role==='accelerator' && m.prefix; });
+  }
   function accelerate(url, m){
-    /* 空前缀 = 官方直连，原样返回 */
-    if(!m || !m.prefix) return url;
+    if(!m || !m.prefix) return url;      // 空前缀 = 官方直连，原样返回
     return m.prefix + url;
   }
+
+  /* ── 地区判断：纯本地计算，不发请求 ── */
+  function slowDirect(){
+    try{
+      var tz='', langs=[], reg='';
+      if(window.Intl && Intl.DateTimeFormat){
+        tz = (Intl.DateTimeFormat().resolvedOptions().timeZone || '');
+      }
+      if(navigator.languages && navigator.languages.length) langs = [].slice.call(navigator.languages);
+      else if(navigator.language) langs = [navigator.language];
+      /* 地区码来自语言标签的 -XX 段，如 zh-CN -> CN */
+      for(var i=0;i<langs.length;i++){
+        var m = /-([A-Za-z]{2})$/.exec(langs[i]);
+        if(m){ reg = m[1].toUpperCase(); break; }
+      }
+      var TZ = P.slow_direct_timezones || [], LG = P.slow_direct_langs || [], RG = P.slow_direct_regions || [];
+      if(tz && TZ.indexOf(tz) >= 0) return true;
+      if(reg && RG.indexOf(reg) >= 0) return true;
+      for(var j=0;j<langs.length;j++) if(LG.indexOf(langs[j]) >= 0) return true;
+      /* 弱网也走加速：直连在 2g/3g 上几乎不可用，反代至少能连上 */
+      if(navigator.connection && /^(slow-)?2g$|^3g$/.test(navigator.connection.effectiveType||'')) return true;
+    }catch(e){}
+    return false;
+  }
+
+  /* 解析「这次该用哪个源」：用户显式选择 > 地区默认 > 官方兜底 */
+  function pickSource(){
+    var a = accelerators();
+    var saved = null;
+    try{ saved = localStorage.getItem(LSKEY); }catch(e){}
+    if(saved){
+      if(saved === 'direct') return {id:'direct', auto:false};
+      if(byId(saved)) return {id:saved, auto:false};
+    }
+    var policy = P.accel || 'auto';
+    var want = (policy === 'on') ? true : (policy === 'off' ? false : slowDirect());
+    if(want && a.length) return {id:a[0].id, auto:true};
+    return {id:'direct', auto:true};
+  }
+
+  var src = pickSource();
+  function current(){ return byId(src.id) || direct(); }
 
   var queue = document.getElementById('queue'),
       bar = queue && queue.querySelector('.bar i'),
       num = queue && queue.querySelector('.n'),
       now = queue && queue.querySelector('.qn'),
       nextBtn = queue && queue.querySelector('[data-more]'),
+      banner = document.getElementById('srcbar'),
+      toggle = document.getElementById('srctoggle'),
       quit = false, cursor = 0, timer = null;
 
   var apps = [];
@@ -406,6 +466,36 @@ STORE_JS = r"""
       name: el.getAttribute('data-apk-name') || 'apk',
       size: parseInt(el.getAttribute('data-apk-size') || '0', 10)
     });
+  });
+
+  /* ── 下载源状态条：把「现在走谁」摊开说，并允许一键切换 ── */
+  function paintSource(){
+    if(!banner) return;
+    var m = current(), acc = m.id !== 'direct', a = accelerators();
+    var why = src.auto
+      ? (acc ? '已按你的地区自动启用加速（直连在你的网络里通常很慢）'
+             : '你的地区直连速度正常，正在用官方直连')
+      : '你手动选择的源';
+    var s = document.createElement('b');
+    s.textContent = m.label;
+    banner.innerHTML = '';
+    banner.appendChild(document.createTextNode(acc ? '加速已开启 · ' : '直连 · '));
+    banner.appendChild(s);
+    banner.appendChild(document.createTextNode(' ── ' + why));
+    if(toggle){
+      /* 只提供「切到官方」/「切到加速」两级，不在这里列全部镜像——
+         用户要的是「快不快」，不是「挑哪个反代」。全部候选在下面的表里。 */
+      toggle.textContent = acc ? '改走官方直连' : (a.length ? '开启加速' : '暂无可用加速源');
+      toggle.disabled = !a.length && !acc;
+    }
+  }
+  if(toggle) toggle.addEventListener('click', function(){
+    var acc = current().id !== 'direct';
+    var next = acc ? 'direct' : (accelerators()[0] || {}).id;
+    if(!next) return;
+    src = {id: next, auto: false};
+    try{ localStorage.setItem(LSKEY, next); }catch(e){}
+    paintSource();
   });
 
   function human(n){
@@ -441,15 +531,18 @@ STORE_JS = r"""
       paint();
       return;
     }
-    /* 并发发起：一条连接一个包。这是这里唯一的加速手段——
+    /* 并发发起：一条连接一个包。这是「怎么下」这一侧唯一的加速手段——
        实测单连接吞吐固定，串行只会把 N 次建连的等待叠起来。 */
-    var burst = 0;
+    var m = current(), burst = 0;
     while(burst < MAX_PARALLEL && cursor < apps.length){
-      fire(apps[cursor], mirrorById(PREFERRED));
+      fire(apps[cursor], m);
       cursor++; burst++;
       paint();
     }
-    if(now) now.textContent = '已并行发起 ' + cursor + ' / ' + apps.length + ' 个下载…';
+    if(now){
+      now.textContent = '已并行发起 ' + cursor + ' / ' + apps.length + ' 个下载…'
+        + '（源：' + m.label + '）';
+    }
     timer = setTimeout(tick, cursor < apps.length ? 1500 : 200);
   }
 
@@ -480,6 +573,8 @@ STORE_JS = r"""
       queue.classList.remove('on');
     });
   }
+
+  paintSource();
 })();
 """
 
@@ -710,12 +805,14 @@ def build_store(site, groups, projects, mirrors=None):
     n_apps, total = len(apps), total_bytes
 
     n_mirrors = len((mirrors or {}).get("mirrors", []))
-    # 透明地把「有哪些第三方下载源」写出来。把下载流量交给反代是个该知情的决定，
-    # 所以列清单，并且说明默认走官方直连。
+    # 把「有哪些源、各自什么角色」写出来。选哪个由前端按地区决定，
+    # 所以这里标的是角色而不是「默认/备选」——「默认」是运行时的事，不是静态的。
     mirror_rows = ""
     for m in (mirrors or {}).get("mirrors", []):
-        tag = ('<span class="badge ok">默认</span>' if m["default"]
-               else '<span class="badge">备选</span>')
+        if m.get("role") == "fallback":
+            tag = '<span class="badge ok">兜底</span>'
+        else:
+            tag = '<span class="badge">加速</span>'
         mirror_rows += (f'<tr><td>{esc(m["label"])}</td>'
                         f'<td>{tag}</td>'
                         f'<td><code>{esc(m["prefix"]) or "（直连，无前缀）"}</code></td></tr>')
@@ -725,8 +822,8 @@ def build_store(site, groups, projects, mirrors=None):
 <div class="grow">
 <b>一次下齐全部 {len(apps)} 个应用</b>
 <span>共 <span class="tot">{human_size(total_bytes)}</span>。
-这些包会<b>并行发起</b>（每批 {5} 个），而不是一个个排队等建连——小包慢就慢在建连上，
-并行之后总速度是几条连接之和。中途可停，断哪个重下哪个。</span>
+会按你的地区自动选下载源，并<b>并行发起</b>（每批 {5} 个）而不是一个个排队等建连——
+小包慢就慢在建连上，并行之后总速度是几条连接之和。中途可停，断哪个重下哪个。</span>
 </div>
 <button class="btn primary" type="button" data-bulk="1">⬇ 一键下载全部（{human_size(total_bytes)}）</button>
 </div>
@@ -767,13 +864,66 @@ def build_store(site, groups, projects, mirrors=None):
 
 <h2 id="speed">下载速度</h2>
 <p style="color:var(--muted);font-size:.9rem;max-width:64ch">
-这里没有服务端、也没有 CDN，就是 GitHub 在发文件。能优化的只有<b>「怎么下」</b>，
-不是<b>「从哪下」</b>——下面把实测数字和取舍都摊开说，包括一个做错了又撤掉的做法。
+这里没有服务端、也没有 CDN，就是 GitHub 在发文件。能动的只有两件事：
+<b>「从哪下」</b>和<b>「怎么下」</b>。两件都做了，下面把依据和取舍摊开说——
+包括一个做错了又撤掉的做法，因为它失败得太安静，不写下来下一个人会再走一遍。
 </p>
-<details class="help">
-<summary>① 为什么不吹「多线程下载大文件」</summary>
+
+<div class="srcbar-wrap">
+<span class="srcbar" id="srcbar">正在判断下载源…</span>
+<button class="btn small" type="button" id="srctoggle">切换</button>
+</div>
+
+<details class="help" open>
+<summary>① 「从哪下」：按你的地区自动选源（不用测速）</summary>
 <p style="margin-top:.9em">
-因为实测<b>不成立</b>。同一个 58.3 MB 的包，在同一个网络里开不同数量的并发连接：
+直连 GitHub 的体验是<b>按地区两极分化</b>的，而且这个差异是<b>稳定的</b>：大陆普遍只有
+几百 KB/s 甚至断流，海外接近满速。既然差异稳定，就可以<b>在本地推断</b>，一个网络请求都不用发。
+</p>
+<p>判断依据全部来自浏览器已有的本地信息：</p>
+<table class="mirrors">
+<thead><tr><th>信号</th><th>例子</th><th>作用</th></tr></thead>
+<tbody>
+<tr><td>时区</td><td><code>Asia/Shanghai</code></td><td>主要依据</td></tr>
+<tr><td>语言 / 地区</td><td><code>zh-CN</code> → <code>CN</code></td><td>辅助</td></tr>
+<tr><td>网络类型</td><td><code>2g</code> / <code>3g</code></td><td>弱网时也走加速</td></tr>
+</tbody>
+</table>
+<p>
+命中 → 判定「直连大概率很慢」→ <b>默认启用加速</b>；否则默认官方直连
+（海外直连本来就不慢，套一层反代只是多一跳）。
+</p>
+<p style="color:var(--warn)">
+<b>「走了第三方」这件事必须看得见。</b>上面那行状态会实时显示当前用哪个源，点「切换」就能改回官方直连，
+选择会记住。加速源打不开时会<b>显式回退</b>到官方并在页面说明，不静默降级。
+默认开加速的前提，是它完全透明。
+</p>
+</details>
+
+<details class="help">
+<summary>② 为什么不「自动测速选源」：做过，是假的</summary>
+<p style="margin-top:.9em">
+最直觉的做法是用 <code>fetch</code> 并发探测每个候选、按实测速度挑最快的。我实现过，<b>结果是四个候选一个都读不到数据</b>。
+原因是 CORS：GitHub Release 会 302 到 <code>release-assets.githubusercontent.com</code>，
+而那一跳<b>不带 <code>Access-Control-Allow-Origin</code></b>，三个反代同样不带。
+浏览器读不到响应字节数，计时恒为 0。
+</p>
+<p>
+更糟的是它<b>看起来是能用的</b>：探针全部失败后会悄悄退回官方直连，页面照常下完文件，
+用户完全不会察觉——区别只是白花了 4 次请求，而那个「智能选源」从来没生效过。
+</p>
+<p style="color:var(--muted);font-size:.9em">
+顺带一个反直觉的点：探针 <code>fetch</code> 失败只说明「缺 CORS 头」，
+<b>不代表镜像挂了</b>——实测失败的候选，用浏览器直接下照样是 200 完整文件。
+所以「能不能 fetch 通」既不能当可用性判断，也不能当选源依据。
+</p>
+</details>
+
+<details class="help">
+<summary>③ 「怎么下」：并行建连；但别指望「多线程下载」</summary>
+<p style="margin-top:.9em">
+这里<b>没有</b>「多线程下载大文件」，因为实测不成立。同一个 58.3 MB 的包，
+在同一个网络里开不同数量的并发连接：
 </p>
 <table class="mirrors">
 <thead><tr><th>并发连接</th><th>总吞吐</th><th>用时</th></tr></thead>
@@ -783,14 +933,9 @@ def build_store(site, groups, projects, mirrors=None):
 </tbody>
 </table>
 <p>
-瓶颈不在「浏览器只开了一条连接」——<b>每条连接的吞吐是固定的</b>，多开连接不增加总带宽。
-所以这里没有多线程下载。写上去只是好看，不会变快。
+每条连接的吞吐是<b>固定</b>的，多开连接不增加总带宽，所以分块下载写上去只是好看，不会变快。
 </p>
-</details>
-
-<details class="help">
-<summary>② 那真正的加速点是什么</summary>
-<p style="margin-top:.9em"><b>并行建连。</b>单个连接的速度严重依赖文件大小：</p>
+<p>但<b>并行发起多个包</b>是真实收益——因为小包慢在建连，不是慢在带宽：</p>
 <table class="mirrors">
 <thead><tr><th>安装包</th><th>体积</th><th>单连接实测</th></tr></thead>
 <tbody>
@@ -802,84 +947,25 @@ def build_store(site, groups, projects, mirrors=None):
 </tbody>
 </table>
 <p>
-小包慢在<b>建连</b>（实测 TTFB 0.3~1.3 秒），不是慢在带宽——包越大，建连那点耗时占比越小。
-所以页面把这些包<b>并行发起</b>：8 个包的总吞吐就是 8 条连接各自之和，
-而不是把 8 次建连的等待串起来。这是这个网络条件下唯一站得住的加速。
+小包的 TTFB 实测 <b>0.3~1.3 秒</b>，包越大这部分占比越小。所以页面每批并行发起 5 个：
+总吞吐是几条连接之和，而不是把 5 次建连的等待串起来。
 </p>
 </details>
 
 <details class="help">
-<summary>③ 一个做错了又撤掉的做法（关于第三方下载源）</summary>
+<summary>④ 有哪些下载源（这张表是构建时生成的）</summary>
 <p style="margin-top:.9em">
-另一个思路是「换个镜像下」。实测这些反代之间能差 <b>50 倍以上</b>，而且谁快谁慢完全看当时当地：
+加速源之间的快慢才是<b>随机</b>的——实测能差 50 倍以上，而且谁快谁慢完全看当时当地。
+这部分没有可靠的本地信号，所以<b>不猜</b>：默认按地区在下面这些源里挑第一个可用的，
+想换就用上面的「切换」，想用某个具体反代就在仓库里改配置。
 </p>
 <table class="mirrors">
-<thead><tr><th>下载源</th><th>实测单连接</th><th>状态</th></tr></thead>
-<tbody>
-<tr><td>GitHub 官方</td><td>6.2 MB/s</td><td><span class="badge ok">默认</span></td></tr>
-<tr><td>gh-proxy.com</td><td>5.9 MB/s</td><td><span class="badge">备选</span></td></tr>
-<tr><td>ghfast.top</td><td>4.6 MB/s</td><td><span class="badge">备选</span></td></tr>
-<tr><td>ghproxy.net</td><td>0.09 MB/s</td><td><span class="badge">备选</span></td></tr>
-</tbody>
-</table>
-<p>
-那为什么不「自动选最快的源」？因为做过，<b>而且做错了</b>，值得写下来：
-最初用 <code>fetch</code> 并发探测每个候选，想按实测速度挑最快的。结果是
-<b>四个候选一个都读不到数据</b>。原因是 CORS：GitHub Release 会 302 到
-<code>release-assets.githubusercontent.com</code>，而那一跳不带
-<code>Access-Control-Allow-Origin</code>，三个反代同样不带。浏览器读不到字节数，
-也就无法计时——所谓「测速」永远是 0。
-</p>
-<p>
-更糟的是它<b>看起来是能用的</b>：探针全部失败之后会「退回官方直连」，
-页面照常下完文件，用户不会察觉。区别只是白花了 4 次请求，而且那个「智能选源」从来没生效过。
-</p>
-<p style="color:var(--muted);font-size:.9em">
-顺带一个反直觉的点：探针 <code>fetch</code> 失败只说明「缺 CORS 头」，
-<b>不代表镜像挂了</b>——实测失败的候选，用浏览器直接下照样是 200 完整文件。
-所以「能不能 fetch 通」不能当可用性判断，这也正是它不适合做选源依据的原因。
-</p>
-<p style="color:var(--warn)">
-<b>所以默认只走 GitHub 官方。</b>非官方源意味着你的下载请求会经过别人的服务器——
-这是该由你决定的事，不该由页面替你默认开启。四个源都列在上面，配置在仓库的
-<code>data/mirrors.py</code> 里，你可以在自己的网络里测出更快的那个再用。
-</p>
-</details>
-
-<h2 id="speed">下载速度</h2>
-<p style="color:var(--muted);font-size:.9rem;max-width:64ch">
-页面会在开始批量下载前<b>实测几个下载源的速度</b>，把最快的那个用在这一次下载上。
-选出来的结果存在你自己的浏览器里，下次直接用；换网络、换时间会自动重测。
-所有探测都是在你本地对下载地址取 96 KB 计时，<b>不经过本站</b>——这里是纯静态托管，没有服务端，
-也不会收到你的任何数据。
-</p>
-<details class="help">
-<summary>它到底怎么加速的（以及为什么不吹「多线程」）</summary>
-<p style="margin-top:.9em">
-这里没有「多线程下载大文件」这种东西，因为实测<b>不成立</b>：同一个包开 1 / 2 / 4 条
-并发连接，总吞吐都是 ~6.2 MB/s，说明瓶颈不在「浏览器只开了一条连接」。
-所以那个数字不好看也不吹。
-</p>
-<p>真实的加速点有两个：</p>
-<ol>
-<li><b>并行建连。</b>小包每个连接的速度被建连等待拖住（实测 TTFB 0.3~1.3 秒，
-大包 2.1 MB/s、小包只有 0.7~0.9 MB/s）。把包并行发起，总吞吐就是多条连接之和，
-而不是把 8 次建连的等待串起来。</li>
-<li><b>换源。</b>同一个文件在不同反代上实测能差 50 倍以上（5.9 MB/s ↔ 0.09 MB/s），
-而且谁快谁慢完全看当时当地。所以不写死任何一个，每次都测一次再选。</li>
-</ol>
-<p style="color:var(--warn)">
-<b>关于第三方下载源（需要你知情）</b>：非官方源意味着你的下载请求会经过别人的服务器。
-默认只走 GitHub 官方；只有在官方直连也慢、你打开了加速的情况下才使用它们。
-任何一个源探不通，都会自动退回官方直连——加速永远不会变成新的失败点。
-</p>
-<table class="mirrors">
-<thead><tr><th>下载源</th><th>状态</th><th>地址前缀</th></tr></thead>
+<thead><tr><th>下载源</th><th>角色</th><th>地址前缀</th></tr></thead>
 <tbody>{mirror_rows}</tbody>
 </table>
 <p style="color:var(--muted);font-size:.86em">
 这张表来自仓库里的 <code>data/mirrors.py</code>，是构建时渲染的——不是写死在本页里的。
-某个镜像挂掉了，删掉那一行就好，前端会自动少一个候选。
+某个镜像挂掉了，删掉那一行就好，前端会自动少一个候选；<code>direct</code> 这条不允许删，它是兜底。
 </p>
 </details>
 <div class="queue" id="queue">
