@@ -50,7 +50,8 @@
 > 实测 headless Chromium 会随机把 `effectiveType` 报成 `3g`，导致加速被误开；
 > 而且这个信号的语义是「我的链路慢」，不是「我到 GitHub 远」——两回事。
 
-命中大陆时区/语言 → 判定为「直连大概率很慢」→ **默认启用加速**。
+命中大陆时区/语言 → 判定为「直连大概率很慢」→ **默认启用加速**，
+并把各包在候选源间**轮转**（详见文件末尾 ACCEL_DEFAULT 处的说明）。
 其余情况 → 默认直连（海外直连本来就不慢，套一层反代只是多一跳）。
 **两种情况下都保留了显式开关**，且开关状态存在 localStorage 里，用户改过就以用户为准。
 
@@ -82,21 +83,14 @@ MIRRORS = [
         "label": "gh-proxy.com",
         "prefix": "https://gh-proxy.com/",
         "role": "accelerator",
-        "note": "大陆反代，实测与直连同级（2.06 MB/s @ 3MB 取样）。作为大陆首选加速源。",
+        "note": "大陆反代。本环境实测 61 MB 包 3/3 次完整下载（6.2 MB/s，与直连同级），小包 8/8 次成功。作为首选加速源。",
     },
     {
         "id": "ghfast",
         "label": "ghfast.top",
         "prefix": "https://ghfast.top/",
         "role": "accelerator",
-        "note": "大陆反代，实测约为直连的一半（0.96 MB/s @ 3MB 取样）。备选。",
-    },
-    {
-        "id": "ghproxy_net",
-        "label": "ghproxy.net",
-        "prefix": "https://ghproxy.net/",
-        "role": "accelerator",
-        "note": "本环境实测严重限速（3 MB 取样 40 秒未完成）。仅作候选，不建议默认选中。",
+        "note": "大陆反代。本环境实测 61 MB 包 3/3 次完整下载（1.9~4.5 MB/s，抖动较大）。备选。",
     },
 ]
 
@@ -111,7 +105,12 @@ SLOW_DIRECT_LANGS = ("zh-CN", "zh-Hans", "zh", "zh-Hant", "zh-TW", "zh-HK")
 SLOW_DIRECT_REGIONS = ("CN", "HK", "MO", "TW")
 
 # 默认是否启用加速。注意这不是「默认走某个镜像」，而是
-# 「先按地区判断该不该走加速，再在加速源里挑第一个可用的」。
+# 「先按地区判断该不该走加速；要走时，把各个包在**全部候选源之间轮转**，
+#   而不是所有包都押在第一个源上」。
+#
+# 为什么改成轮转：旧实现只挑一个源给所有包用，单个反代限速/挂掉就整批全灭。
+# 实测 ghproxy.net 在 61 MB 包上 3/3 次下不完（小包正常），
+# 这种源一旦被选中，用户看到的就是「链接经常失效」。
 ACCEL_DEFAULT = "auto"          # auto | on | off
 
 # 说明：这里**故意不提供**「探测字节数」和「分块并发数」这类参数。
