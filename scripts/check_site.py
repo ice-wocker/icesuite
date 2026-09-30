@@ -139,6 +139,47 @@ def main():
         if "store.html" not in index:
             errors.append("首页没有商店入口")
 
+        # --- 3.6 智能下载层的守门 ---
+        # 这块的价值在于：下载逻辑坏了在页面上看不出来（按钮在、样式对，
+        # 只是慢或者下不来），所以必须由检查盯着。下面每条都验过「注入缺陷会变红」。
+        if not re.search(r'data-apk="[^"]+"[^>]*data-apk-size="\d+"', store):
+            errors.append("商店页的下载按钮没有带 data-apk-size（一键下载拿不到体积）")
+        # 并行发起：并发数必须真的**被赋值**、且 >1。
+        # 只搜 "MAX_PARALLEL" 是橡皮图章——注释里也有这个词，永远为真。
+        # 要断言的是「这个数字确实进了下载循环」，所以连 while 条件一起钉。
+        mp = re.search(r"MAX_PARALLEL\s*=\s*(\d+)", store)
+        if not mp:
+            errors.append("商店页没有给 MAX_PARALLEL 赋值——并行发起逻辑不见了")
+        elif int(mp.group(1)) < 2:
+            errors.append(f"MAX_PARALLEL={mp.group(1)}，退化成串行下载："
+                          "8 个包会排队等建连，这正是慢的根因")
+        elif not re.search(r"burst\s*<\s*MAX_PARALLEL\s*&&", store):
+            errors.append("MAX_PARALLEL 没有被用在发起循环里（只有赋值没有使用）")
+        # 曾经踩过的真坑：用 fetch 探测镜像速度。GitHub Release 与三个反代
+        # 都不带 Access-Control-Allow-Origin，探针永远失败，等于白花 4 次请求
+        # 且永远选不出源。这条守卫防止有人「好心」把它加回来。
+        # 同样只认代码，不认注释：先剥掉 /* */ 与 // 再找 fetch。
+        code = re.sub(r"/\*.*?\*/", "", store, flags=re.S)
+        code = re.sub(r"^\s*//.*$", "", code, flags=re.M)
+        if re.search(r"fetch\s*\(", code):
+            errors.append("商店页又出现了 fetch 调用——下载地址不带 CORS 头，"
+                          "任何基于 fetch 的测速/选源都必然失败")
+        # 默认源必须是官方直连：把用户下载流量交给第三方不能是默认行为
+        if '"prefix": ""' not in store and "prefix\": \"\"" not in store:
+            errors.append("商店页没有配置官方直连源（空前缀）")
+        for label in ("GitHub 官方",):
+            if label not in store:
+                errors.append(f"商店页缺少下载源说明：{label}")
+        # 说明文案必须与实现一致：声称的并发数要真的是代码里的数
+        m = re.search(r"每批 (\d+) 个", store)
+        if not m:
+            errors.append("商店页没有写明每批并发几个下载")
+        elif m.group(1) != "5":
+            errors.append(f"商店页写「每批 {m.group(1)} 个」与实现 MAX_PARALLEL=5 不一致")
+        # 不能吹「多线程下载大文件」：实测无收益，写了就是假话
+        if "多线程下载" in store and "为什么不吹" not in store:
+            errors.append("商店页出现「多线程下载」却没有对应的实测说明")
+
     # --- 4. 外链可达性 ---
     checked = 0
     if not args.skip_links:
