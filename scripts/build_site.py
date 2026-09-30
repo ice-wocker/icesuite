@@ -436,23 +436,54 @@ STORE_JS = r"""
     return false;
   }
 
-  /* 解析「这次该用哪个源」：用户显式选择 > 地区默认 > 官方兜底 */
-  function pickSource(){
-    var a = accelerators();
+  /* ── 选源模型：不再「全局只选一个源」 ──────────────────────────
+     旧实现 pickSource() 只返回**一个**源，8 个包全押在它身上。
+     实测 ghproxy.net 在 61 MB 包上 3/3 次下不完，而它当时还在候选里 ——
+     一旦被选中，用户看到的就是「链接失效」。所以改成：
+       ① 按地区决定「要不要加速」；
+       ② 要加速就用**全部可用加速源轮转**分担，单个源挂掉只影响一小部分；
+       ③ 官方直连永远排在最后垫底。 */
+  function wantAccel(){
     var saved = null;
     try{ saved = localStorage.getItem(LSKEY); }catch(e){}
-    if(saved){
-      if(saved === 'direct') return {id:'direct', auto:false};
-      if(byId(saved)) return {id:saved, auto:false};
-    }
+    if(saved === 'direct') return false;
+    if(saved && byId(saved)) return true;
     var policy = P.accel || 'auto';
-    var want = (policy === 'on') ? true : (policy === 'off' ? false : slowDirect());
-    if(want && a.length) return {id:a[0].id, auto:true};
-    return {id:'direct', auto:true};
+    if(policy === 'on') return true;
+    if(policy === 'off') return false;
+    return slowDirect();
   }
 
-  var src = pickSource();
-  function current(){ return byId(src.id) || direct(); }
+  /* 有序候选：首选加速源 → 其余加速源 → 官方兜底 */
+  function candidates(){
+    var d = direct();
+    var a = wantAccel() ? accelerators() : [];
+    if(!a.length) return d ? [d] : [];
+    if(!d) return a;
+    return a.concat([d]);
+  }
+
+  /* 用户手动固定的源（localStorage）优先覆盖一切 */
+  function pinned(){
+    var saved = null;
+    try{ saved = localStorage.getItem(LSKEY); }catch(e){}
+    return (saved && byId(saved)) ? byId(saved) : null;
+  }
+
+  /* 第 i 个包的源：优先用户固定源，否则按 (i + 换源偏移) 轮转。
+     srcIdx[i] 记录「这个包被手动换过几次源」，每次换源 +1。 */
+  var srcIdx = {};
+  function sourceFor(i){
+    var list = candidates();
+    if(!list.length) return null;
+    var p = pinned();
+    if(p) return p;
+    return list[((i % list.length) + (srcIdx[i] || 0)) % list.length];
+  }
+  function rotateFor(i){
+    srcIdx[i] = (srcIdx[i] || 0) + 1;   /* 下一个候选源 */
+    return sourceFor(i);
+  }
 
   var queue = document.getElementById('queue'),
       bar = queue && queue.querySelector('.bar i'),
@@ -472,34 +503,35 @@ STORE_JS = r"""
     });
   });
 
-  /* ── 下载源状态条：把「现在走谁」摊开说，并允许一键切换 ── */
+  /* ── 下载源状态条 ── */
   function paintSource(){
     if(!banner) return;
-    var m = current(), acc = m.id !== 'direct', a = accelerators();
-    var why = src.auto
-      ? (acc ? '已按你的地区自动启用加速（直连在你的网络里通常很慢）'
-             : '你的地区直连速度正常，正在用官方直连')
-      : '你手动选择的源';
-    var s = document.createElement('b');
-    s.textContent = m.label;
+    var a = accelerators(), pin = pinned();
+    var on = wantAccel() && a.length > 0;
     banner.innerHTML = '';
-    banner.appendChild(document.createTextNode(acc ? '加速已开启 · ' : '直连 · '));
-    banner.appendChild(s);
+    var b = document.createElement('b');
+    b.textContent = pin ? pin.label : (on ? '自动' : 'GitHub 官方');
+    banner.appendChild(document.createTextNode((on || pin) ? '加速已开启 · ' : '直连 · '));
+    banner.appendChild(b);
+    var why;
+    if(pin) why = '你手动固定的源——所有包都走它，失败了可以点包上的「换源重下」';
+    else if(on) why = '按你的地区自动启用；' + apps.length + ' 个包在 '
+                      + (a.length + 1) + ' 个源（含官方兜底）间轮转，单源挂掉不会全灭';
+    else why = '你的地区直连速度正常，正在用官方直连';
     banner.appendChild(document.createTextNode(' ── ' + why));
     if(toggle){
-      /* 只提供「切到官方」/「切到加速」两级，不在这里列全部镜像——
-         用户要的是「快不快」，不是「挑哪个反代」。全部候选在下面的表里。 */
-      toggle.textContent = acc ? '改走官方直连' : (a.length ? '开启加速' : '暂无可用加速源');
-      toggle.disabled = !a.length && !acc;
+      toggle.textContent = (on || pin) ? '改走官方直连' : (a.length ? '开启加速' : '暂无可用加速源');
+      toggle.disabled = !a.length && !(on || pin);
     }
   }
   if(toggle) toggle.addEventListener('click', function(){
-    var acc = current().id !== 'direct';
-    var next = acc ? 'direct' : (accelerators()[0] || {}).id;
+    var on = (wantAccel() && accelerators().length) || pinned();
+    var next = on ? 'direct' : (accelerators()[0] || {}).id;
     if(!next) return;
-    src = {id: next, auto: false};
     try{ localStorage.setItem(LSKEY, next); }catch(e){}
+    srcIdx = {};
     paintSource();
+    if(queue && queue.classList.contains('on')) buildRetry();
   });
 
   function human(n){
@@ -516,7 +548,10 @@ STORE_JS = r"""
     queue.classList.add('on');
     if(nextBtn) nextBtn.style.display = cursor < apps.length ? '' : 'none';
   }
-  function fire(app, m){
+  /* 触发一次下载。srcIdx 为包的下标，源由 sourceFor() 决定。 */
+  function fire(i){
+    var app = apps[i], m = sourceFor(i);
+    if(!app || !m) return false;
     var a = document.createElement('a');
     a.href = accelerate(app.url, m);
     a.download = app.name;
@@ -524,28 +559,31 @@ STORE_JS = r"""
     /* 必须挂进 DOM 再点：部分移动端浏览器对游离节点不理会 */
     document.body.appendChild(a); a.click();
     setTimeout(function(){ a.remove(); }, 0);
+    app._src = m;
+    return true;
   }
 
   function tick(){
     if(quit) return;
     if(cursor >= apps.length){
       if(bar) bar.style.width = '100%';
-      if(now) now.textContent = '已发起全部 ' + apps.length + ' 个下载。若系统只放行了部分，点「继续」补齐剩下的。';
+      if(now) now.textContent = '已发起全部 ' + apps.length + ' 个下载（多源轮转）。'
+        + '浏览器只会放行一部分，点「继续」补齐剩下的。';
       if(nextBtn) nextBtn.style.display = 'none';
       paint();
+      buildRetry();
       return;
     }
-    /* 并发发起：一条连接一个包。这是「怎么下」这一侧唯一的加速手段——
-       实测单连接吞吐固定，串行只会把 N 次建连的等待叠起来。 */
-    var m = current(), burst = 0;
+    /* 并发发起多个包。实测单连接吞吐固定，串行只会把 N 次建连的等待叠起来；
+       而多源轮转让这批包分摊到不同源上，避免一个反代限速拖垮全部。 */
+    var burst = 0;
     while(burst < MAX_PARALLEL && cursor < apps.length){
-      fire(apps[cursor], m);
+      fire(cursor);
       cursor++; burst++;
       paint();
     }
     if(now){
-      now.textContent = '已并行发起 ' + cursor + ' / ' + apps.length + ' 个下载…'
-        + '（源：' + m.label + '）';
+      now.textContent = '已并行发起 ' + cursor + ' / ' + apps.length + ' 个下载…';
     }
     timer = setTimeout(tick, cursor < apps.length ? 1500 : 200);
   }
@@ -554,8 +592,57 @@ STORE_JS = r"""
     quit = false; show();
     if(nextBtn) nextBtn.style.display = 'none';
     if(bar) bar.style.width = '0%';
-    cursor = 0; paint();
+    cursor = 0; srcIdx = {}; paint();
     timer = setTimeout(tick, 60);
+  }
+
+  /* ── 逐包换源重下 ──────────────────────────────────────────────
+     为什么要有这个：下载走的是 <a> 导航，浏览器跨域读不到任何响应信息
+     （三个反代与直连都不带 Access-Control-Allow-Origin，no-cors 只能拿到
+     opaque response，status/字节数全是 0）。所以**页面无法自动知道**某个包
+     有没有下成 —— 这决定了「自动重试」在技术上是做不到的，
+     能做的是把失败变得「用户一眼能看出 + 一键换源再来一次」。
+     这一条是「链接经常失效」的正面对策。 */
+  function buildRetry(){
+    var host = document.getElementById('retry');
+    if(!host) return;
+    host.innerHTML = '';
+    var list = candidates();
+    if(list.length < 2){
+      host.innerHTML = '<p style="color:var(--muted);font-size:.88em;margin:.6em 0 0">'
+        + '当前只有一个可用下载源（官方直连）。若始终下不下来，通常是网络到 GitHub 不通，'
+        + '可在 <code>data/mirrors.py</code> 里加一个加速源。</p>';
+      return;
+    }
+    var p = document.createElement('p');
+    p.style.cssText = 'color:var(--muted);font-size:.88em;margin:.8em 0 .5em';
+    p.textContent = '某个包没下下来？点它右边的「换源重下」，会改用下一个源再试一次'
+      + '（当前共 ' + list.length + ' 个候选）。';
+    host.appendChild(p);
+    apps.forEach(function(app, i){
+      var row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:.6em;align-items:center;justify-content:space-between;'
+        + 'padding:.35em 0;border-bottom:1px solid var(--border);font-size:.88em';
+      var lab = document.createElement('span');
+      lab.textContent = app.name + '　';
+      var m = document.createElement('span');
+      m.style.color = 'var(--muted)';
+      m.textContent = '源：' + ((sourceFor(i) || {}).label || '—');
+      lab.appendChild(m);
+      var btn = document.createElement('button');
+      btn.className = 'btn small';
+      btn.type = 'button';
+      btn.textContent = '换源重下';
+      btn.addEventListener('click', (function(idx, labelEl){
+        return function(){
+          var nm = rotateFor(idx);
+          labelEl.textContent = '源：' + ((nm || {}).label || '—');
+          fire(idx);   /* 同一个包，换下一个候选源立即重下 */
+        };
+      })(i, m));
+      row.appendChild(lab); row.appendChild(btn);
+      host.appendChild(row);
+    });
   }
 
   box.addEventListener('click', function(e){
@@ -826,8 +913,9 @@ def build_store(site, groups, projects, mirrors=None):
 <div class="grow">
 <b>一次下齐全部 {len(apps)} 个应用</b>
 <span>共 <span class="tot">{human_size(total_bytes)}</span>。
-会按你的地区自动选下载源，并<b>并行发起</b>（每批 {5} 个）而不是一个个排队等建连——
-小包慢就慢在建连上，并行之后总速度是几条连接之和。中途可停，断哪个重下哪个。</span>
+会按你的地区自动决定要不要加速，并把各个包<b>轮转分摊到多个源</b>上，同时<b>并行发起</b>（每批 {5} 个）——
+小包慢就慢在建连上，并行之后总速度是几条连接之和；多源轮转则保证单源挂掉不会全灭。
+中途可停；某个包没下下来的话，下面有它的「换源重下」。</span>
 </div>
 <button class="btn primary" type="button" data-bulk="1">⬇ 一键下载全部（{human_size(total_bytes)}）</button>
 </div>
@@ -950,17 +1038,32 @@ def build_store(site, groups, projects, mirrors=None):
 </tbody>
 </table>
 <p>
-小包的 TTFB 实测 <b>0.3~1.3 秒</b>，包越大这部分占比越小。所以页面每批并行发起 5 个：
+小包的 TTFB 实测 <b>0.3~1.3 秒</b>，包越大这部分占比越小。所以页面<b>每批并行发起 5 个</b>：
 总吞吐是几条连接之和，而不是把 5 次建连的等待串起来。
 </p>
 </details>
 
 <details class="help">
-<summary>④ 有哪些下载源（这张表是构建时生成的）</summary>
+<summary>④ 修复「下载慢 / 链接经常失效」：多源轮转 + 换源重下</summary>
 <p style="margin-top:.9em">
-加速源之间的快慢才是<b>随机</b>的——实测能差 50 倍以上，而且谁快谁慢完全看当时当地。
-这部分没有可靠的本地信号，所以<b>不猜</b>：默认按地区在下面这些源里挑第一个可用的，
-想换就用上面的「切换」，想用某个具体反代就在仓库里改配置。
+先说清楚一件事：<b>页面没法自动知道哪个包有没有下成。</b>
+下载走的是 <code>&lt;a&gt;</code> 导航，而跨域读响应被 CORS 挡死——
+直连和三个反代<b>都不带 <code>Access-Control-Allow-Origin</code></b>，
+<code>no-cors</code> 只能拿到 opaque response（<code>status=0</code>、<code>type=opaque</code>，字节数读不到）。
+实测确认：无论包是否存在、源是否超时，fetch 都在 10~20 ms 内返回，<b>读不出任何差异</b>。
+所以「自动重试」在浏览器里是做不到的，任何声称能做的实现都是在骗人。
+</p>
+<p><b>那能做什么？两件真事：</b></p>
+<p>
+<b>① 不再把所有包押在一个源上。</b>之前 8 个包全用同一个源，一个反代限速就全灭。
+现在按包<b>轮转</b>分摊到多个加速源，单源挂掉最多影响其中一两个。
+实测就有反例：<code>ghproxy.net</code> 在 61 MB 包上 <b>3/3 次都下不完</b>
+（3 分钟只拿到 3~4 MB），这种源已经被移出候选——留在列表里，
+一旦被选中，用户看到的就是「链接失效」。
+</p>
+<p>
+<b>② 每个包都能单独「换源重下」。</b>某个包没下来，点它右边的按钮，
+会换到下一个候选源立即重下，不用整批重来。源的状态就写在每个包旁边。
 </p>
 <table class="mirrors">
 <thead><tr><th>下载源</th><th>角色</th><th>地址前缀</th></tr></thead>
@@ -977,7 +1080,8 @@ def build_store(site, groups, projects, mirrors=None):
 <button class="qx qstop" type="button">停止</button></div>
 <div class="bar"><i></i></div>
 <div class="qn">准备中…</div>
-</div>"""
+</div>
+<div id="retry"></div>"""
 
     (OUT / "store.html").write_text(
         page(site, f"{site['store_name']} · {site['name']}", body, 0, store=True, mirrors=mirrors),
