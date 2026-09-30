@@ -288,25 +288,34 @@ SEARCH_JS = """
 
 
 STORE_JS = """
-/* 一键下载：顺序点一遍链接，用 <a download> 触发浏览器的下载管理。
+/* 一键下载：顺序点链接，用 <a download> 触发浏览器的下载管理。
+
    为什么不是 ZIP：GitHub Pages 是纯静态托管，没有服务端可以打包；
-   而前端打包要么引 JSZip（破零依赖的口径），要么得把几十 MB 的 APK 读进内存（手机上会直接崩）。
-   顺序触发反而更稳：单个失败不影响其他，进度条能如实反映「第几个」，
-   用户在系统通知栏里看到的就是 8 个独立下载，断哪个重下哪个。 */
+   前端打包要么引 JSZip（破了零依赖的口径），要么把几十 MB 的 APK 读进内存
+   （手机上会直接崩）。
+
+   为什么必须能「继续」：浏览器对同一页面连续触发的多个下载会限流——
+   桌面 Chrome 会弹「允许多个下载」，移动端更严格，后面的会被静默丢掉。
+   实测无头 Chrome 只放行第一个。所以这里不假装 8 个一定都会下，
+   而是：下完一批就停，用户接着点「继续」，断在哪就从哪续上。
+   这比「点了按钮却只下来一个，还提示已完成」诚实得多。 */
 (function(){
   var box=document.getElementById('bulk');
   if(!box) return;
-  var apps=[];  /* {url,name,size} */
+  var apps=[];
   document.querySelectorAll('[data-apk]').forEach(function(el){
     apps.push({url:el.getAttribute('data-apk'),
                name:el.getAttribute('data-apk-name')||'apk',
                size:parseInt(el.getAttribute('data-apk-size')||'0',10)});
   });
   var q=document.getElementById('queue'),
-      bar=q?q.querySelector('.bar i'):null,
-      num=q?q.querySelector('.n'):null,
-      now=q?q.querySelector('.qn'):null,
-      stop=false;
+      bar=q&&q.querySelector('.bar i'),
+      num=q&&q.querySelector('.n'),
+      now=q&&q.querySelector('.qn'),
+      nextBtn=q&&q.querySelector('[data-more]'),
+      quit=false, cursor=0, timer=null;
+  /* 一轮最多连发几个：给浏览器留出喘息，避免被整体拦截 */
+  var BATCH=4, GAP=1800;
 
   function human(n){
     if(!n) return '';
@@ -316,41 +325,67 @@ STORE_JS = """
   function fire(app){
     var a=document.createElement('a');
     a.href=app.url; a.download=app.name; a.rel='noopener';
-    /* 必须挂进 DOM 再点，部分移动端浏览器对游离节点不理会 */
+    /* 必须挂进 DOM 再点：部分移动端浏览器对游离节点不理会 */
     document.body.appendChild(a); a.click();
     setTimeout(function(){a.remove()},0);
   }
-  function run(){
-    stop=false;
-    var i=0;
-    if(q){q.classList.add('on');
-      var x=q.querySelector('.qx');
-      if(x) x.onclick=function(){stop=true;q.classList.remove('on')};
+  function paint(){
+    if(bar) bar.style.width=(apps.length? cursor/apps.length*100 : 0)+'%';
+    if(num) num.textContent=cursor+' / '+apps.length;
+  }
+  function show(){
+    if(!q) return;
+    q.classList.add('on');
+    if(nextBtn) nextBtn.style.display = cursor<apps.length ? '' : 'none';
+  }
+  function tick(){
+    if(quit) return;
+    if(cursor>=apps.length){
+      if(bar) bar.style.width='100%';
+      if(now) now.textContent='已发起全部 '+apps.length+' 个下载。若系统只放行了部分，点「继续」补齐剩下的。';
+      if(nextBtn) nextBtn.style.display='none';
+      paint();
+      return;
     }
-    function step(){
-      if(stop) return;
-      if(i>=apps.length){
-        if(bar) bar.style.width='100%';
-        if(num) num.textContent=apps.length+' / '+apps.length;
-        if(now) now.textContent='已全部发起，请在系统下载通知里确认完成。';
-        setTimeout(function(){if(q)q.classList.remove('on')},4000);
-        return;
-      }
-      var app=apps[i];
-      fire(app);
-      i++;
-      if(bar) bar.style.width=(i/apps.length*100)+'%';
-      if(num) num.textContent=i+' / '+apps.length;
-      if(now) now.textContent='正在下载：'+app.name+(app.size?' · '+human(app.size):'');
-      /* 间隔久一点：手机上同时弹 8 个下载会被系统节流，也会把「允许下载」弹窗堆成一串 */
-      setTimeout(step,1600);
+    var app=apps[cursor];
+    fire(app);
+    cursor++;
+    paint();
+    if(now) now.textContent='正在下载：'+app.name+(app.size?' · '+human(app.size):'');
+    var burst=cursor%BATCH;
+    if(burst===0 && cursor<apps.length){
+      /* 一轮结束：停下等用户确认，而不是硬发下一批 */
+      if(now) now.textContent='已发起 '+cursor+' 个。浏览器可能限流，确认收到后点「继续」补齐剩余的 '+ (apps.length-cursor) +' 个。';
+      if(nextBtn) nextBtn.style.display='';
+      show();
+      return;
     }
-    setTimeout(step,60);
+    timer=setTimeout(tick,GAP);
+  }
+  function start(){
+    quit=false; show();
+    if(nextBtn) nextBtn.style.display='none';
+    timer=setTimeout(tick,60);
   }
   box.addEventListener('click',function(e){
-    var t=e.target.closest ? e.target.closest('[data-bulk]') : null;
-    if(t) run();
+    var t=e.target.closest? e.target.closest('[data-bulk]') : null;
+    if(t) start();
   });
+  if(q){
+    if(nextBtn) nextBtn.addEventListener('click',function(){
+      quit=false;
+      if(nextBtn) nextBtn.style.display='none';
+      timer=setTimeout(tick,300);
+    });
+    // 停止按钮不能再用 .qx 泛匹配——「继续」按钮上也有这个类，
+    // 泛匹配会让「继续」同时触发停止，表现为「点继续反而停了」
+    var x=q.querySelector('.qstop');
+    if(x) x.addEventListener('click',function(){
+      quit=true; clearTimeout(timer);
+      if(now) now.textContent='已停止。已发起的 '+cursor+' 个下载不受影响。';
+      q.classList.remove('on');
+    });
+  }
 })();
 """
 
@@ -584,7 +619,8 @@ def build_store(site, groups, projects):
 <div class="grow">
 <b>一次下齐全部 {len(apps)} 个应用</b>
 <span>共 <span class="tot">{human_size(total_bytes)}</span>，
-顺序发起 {len(apps)} 个下载，中途可停。每个包独立下载，断哪个重下哪个。</span>
+分批发起 {len(apps)} 个下载，中途可停。浏览器会限流，所以每批 4 个、需要点一次「继续」，
+断哪个重下哪个。</span>
 </div>
 <button class="btn primary" type="button" data-bulk="1">⬇ 一键下载全部（{human_size(total_bytes)}）</button>
 </div>
@@ -617,13 +653,15 @@ def build_store(site, groups, projects):
 <li>Android 8.0 起，浏览器下载的 APK 需要先允许「安装未知应用」——在系统弹窗里点允许即可。</li>
 <li>部分机型会提示「此类文件可能有害」，这是对非商店来源 APK 的通用提示，选择仍要安装。</li>
 <li>如果浏览器把文件存成了 <code>.bin</code> 或没有后缀，重命名回 <code>.apk</code> 再装。</li>
-<li>一键下载会依次发起多个请求，若系统把后续下载合并或拦截，回到上面列表单独点即可。</li>
+<li><b>关于一键下载</b>：浏览器对同一页面连续触发的下载有限流（桌面 Chrome 会弹「允许多个下载」，移动端更严格）。所以它是<b>分批</b>发的：每 4 个停一次，收到文件后点「继续」补齐剩下的。断在哪就从哪接着下，不重复已下过的。</li>
+<li>若某个包始终下不下来，直接在列表里单独点它的下载按钮即可，效果一样。</li>
 <li>校验完整性：页面上显示的体积就是 Release 里资源的字节数，下载后可自行比对。</li>
 </ol>
 </details>
 <div class="queue" id="queue">
 <div class="qh"><span>批量下载</span><span class="n">0 / 0</span>
-<button class="qx" type="button">停止</button></div>
+<button class="qx qmore" type="button" data-more="1" style="display:none;color:var(--accent);border-color:#19405a">继续</button>
+<button class="qx qstop" type="button">停止</button></div>
 <div class="bar"><i></i></div>
 <div class="qn">准备中…</div>
 </div>"""

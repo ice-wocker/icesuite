@@ -121,6 +121,16 @@ def main():
         # 内联 JS 里也有 "[data-bulk]" 字样，宽匹配会让这条检查永远为真
         if not re.search(r'data-bulk="1"', store):
             errors.append("商店页缺少「一键下载全部」按钮")
+        # 停止按钮与「继续」按钮必须各自有唯一选择器。
+        # 之前两者共用 .qx，「继续」一点就等于点停止——功能整个失效，
+        # 而页面看起来完全正常。这里只认类名，不认注释。
+        for sel, what in (("qstop", "停止按钮"), ("qmore", "继续按钮")):
+            if f'class="{sel} ' not in store and f' {sel}"' not in store:
+                errors.append(f"商店页缺少{what}的独立类名 .{sel}（会与按钮互相误触发）")
+        if "querySelector('.qstop')" not in store:
+            errors.append("停止按钮未使用 .qstop 选择器")
+        if not re.search(r'data-more="1"', store):
+            errors.append("商店页缺少「继续」按钮")
         # 版本号必须以「列表里显示的那个」形式出现，避免只是碰巧在别处被提到
         for repo, rel in releases.items():
             if f'<span class="ver">{rel["tag"]}</span>' not in store:
