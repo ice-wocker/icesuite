@@ -112,7 +112,11 @@ GitHub Pages 是纯静态托管，没有服务端可以打包。前端打包只�
 |---|---|---|
 | 时区（主要） | `Asia/Shanghai` | `Intl.DateTimeFormat().resolvedOptions().timeZone` |
 | 语言 / 地区 | `zh-CN` → `CN` | `navigator.language(s)` |
-| 网络类型 | `2g` / `3g` | `navigator.connection.effectiveType`（若有） |
+
+刻意**没有**用 `navigator.connection.effectiveType`。第一版加过「2g/3g 也走加速」，
+实测 headless Chromium 会随机把 `effectiveType` 报成 `3g`（同 Tokyo / ja-JP
+上下文 5 次里 1 次），加速被误开。而且语义不对：它说的是「我的链路慢」，
+不是「我到 GitHub 远」——慢链路上反代同样慢，套一层只是多一跳。
 
 命中 → 默认启用加速；否则默认官方直连（海外直连本来就不慢，套反代只是多一跳）。
 默认走加速的前提是**它完全透明**：页面顶部有状态条显示当前源，一点就能切回官方，

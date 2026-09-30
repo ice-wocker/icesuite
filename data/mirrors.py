@@ -45,7 +45,10 @@
 |---|---|---|
 | `Intl.DateTimeFormat().resolvedOptions().timeZone` | 如 `Asia/Shanghai` | 最强的地区信号 |
 | `navigator.language` / `languages` | 如 `zh-CN` | 辅助 |
-| `navigator.connection.effectiveType`（若有） | 如 `4g` | 只在 2g/3g 上升级为主推 |
+
+> 刻意**不用** `navigator.connection.effectiveType`。曾加过「2g/3g 也走加速」，
+> 实测 headless Chromium 会随机把 `effectiveType` 报成 `3g`，导致加速被误开；
+> 而且这个信号的语义是「我的链路慢」，不是「我到 GitHub 远」——两回事。
 
 命中大陆时区/语言 → 判定为「直连大概率很慢」→ **默认启用加速**。
 其余情况 → 默认直连（海外直连本来就不慢，套一层反代只是多一跳）。

@@ -189,6 +189,15 @@ def main():
         # 要断言的是「调用出现在赋值/条件里」，所以连上下文一起钉。
         if not re.search(r"[?:=(]\s*slowDirect\s*\(\s*\)", store):
             errors.append("slowDirect 定义了却没有被调用（地区判断没生效）")
+        # 不得用 navigator.connection.effectiveType 做地区判断。曾经加过
+        # 「2g/3g 也走加速」，实测 headless Chromium 会随机把 effectiveType
+        # 报成 3g，导致加速被误开；而且它说的是「我的链路慢」，不是
+        # 「我到 GitHub 远」——慢链路上反代同样慢，套一层只是多一跳。
+        # 只认代码不认注释：上面那段 JS 的块注释里正好写着「不能用它」，
+        # 直接搜字符串会把说明本身当成违规。复用上面剥注释后的 code。
+        if "effectiveType" in code:
+            errors.append("商店页又用 effectiveType 判断地区了——"
+                          "它会被随机报成 3g 导致误开加速，且语义是链路慢而非距离远")
         if "localStorage" not in store:
             errors.append("用户切换下载源后没有持久化（localStorage）——"
                           "用户改过的选择必须被记住")
