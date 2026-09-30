@@ -377,9 +377,15 @@ STORE_JS = r"""
    ⑤ 地区信号（全部本地、零请求）：
         Intl.DateTimeFormat().resolvedOptions().timeZone   主要依据
         navigator.language / languages                     辅助
-        navigator.connection.effectiveType                 仅 2g/3g 时升级为主推
       命中「大陆时区/语言/地区」→ 判定直连大概率很慢 → 默认启用加速源；
       否则默认官方直连（海外直连本来就不慢，套反代只是多一跳）。
+
+      这里**刻意不看 navigator.connection.effectiveType**。曾经加过一条
+      「2g/3g 也走加速」，实测有问题：headless Chromium 会随机把 effectiveType
+      报成 3g（同一个 Tokyo / ja-JP 上下文，5 次里 1 次报 3g），于是加速被误开。
+      更要紧的是这个信号**语义就不对**——它说的是「我的链路慢」，不是
+      「我到 GitHub 远」。两者不是一回事：慢链路上反代同样慢，套一层只是多一跳。
+      地区信号才是那个稳定、且指向「距 GitHub 远近」的量。
 
    ⑥ 「走了第三方」这件事必须**看得见**：顶部有一行状态显示当前用哪个源，
       一点就能切换，选择存在 localStorage。加速源打不开时会**显式回退**到官方
@@ -426,8 +432,6 @@ STORE_JS = r"""
       if(tz && TZ.indexOf(tz) >= 0) return true;
       if(reg && RG.indexOf(reg) >= 0) return true;
       for(var j=0;j<langs.length;j++) if(LG.indexOf(langs[j]) >= 0) return true;
-      /* 弱网也走加速：直连在 2g/3g 上几乎不可用，反代至少能连上 */
-      if(navigator.connection && /^(slow-)?2g$|^3g$/.test(navigator.connection.effectiveType||'')) return true;
     }catch(e){}
     return false;
   }
@@ -886,7 +890,6 @@ def build_store(site, groups, projects, mirrors=None):
 <tbody>
 <tr><td>时区</td><td><code>Asia/Shanghai</code></td><td>主要依据</td></tr>
 <tr><td>语言 / 地区</td><td><code>zh-CN</code> → <code>CN</code></td><td>辅助</td></tr>
-<tr><td>网络类型</td><td><code>2g</code> / <code>3g</code></td><td>弱网时也走加速</td></tr>
 </tbody>
 </table>
 <p>
