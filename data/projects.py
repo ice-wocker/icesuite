@@ -18,9 +18,8 @@ SITE = {
     "name": "ice 工坊",
     "domain": "icesuite.eu.org",
     # base_url 才是「站点现在到底在哪」——它必须是一个**能打开的地址**。
-    # 2026-09 实测：自定义域 icesuite.eu.org 在公共 DNS 上是 NODATA
-    # （eu.org 侧没配 zone），解析失败，浏览器直接报错。CNAME 文件留着，
-    # 等 eu.org 那边配好了把 base_url 换回去即可，站点本身不受影响。
+    # 2026-09 实测：上面 domain 在公共 DNS 上是 NODATA（eu.org 侧没配 zone），
+    # 解析失败，浏览器直接报错。CNAME 文件留着，等那边配好了把 base_url 换回去即可。
     "base_url": "https://ice-wocker.github.io/icesuite",
     "tagline": "零依赖 · 离线优先 · 极小体积",
     "author": "ice-wocker",
