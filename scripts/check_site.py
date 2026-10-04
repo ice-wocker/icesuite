@@ -187,8 +187,14 @@ def main():
         # 定义了还必须真的被调用。注意不能只搜 slowDirect()——函数声明本身
         # 就长这样，那样写是橡皮图章（第一版就是，注入「永不调用」抓不到）。
         # 要断言的是「调用出现在赋值/条件里」，所以连上下文一起钉。
-        if not re.search(r"[?:=(]\s*slowDirect\s*\(\s*\)", store):
-            errors.append("slowDirect 定义了却没有被调用（地区判断没生效）")
+        # slowDirect() 必须在「实际参与决策」的位置被调用。现在它被
+        # wantAccel() 调用（`return slowDirect();`），所以同时接受
+        # return / 赋值 / 三元这类上下文。纯 `function slowDirect(` 声明不算。
+        if not re.search(r"(?:return|\?|\:|\=|\()\s*slowDirect\s*\(\s*\)", store):
+            errors.append("slowDirect 定义了却没有被用来做决策（地区判断没生效）")
+        # 「按地区选源」必须真的产出候选列表，而不是只判断了却不用
+        if not re.search(r"function\s+wantAccel\s*\(", store):
+            errors.append("商店页没有 wantAccel——地区判断没有被用来决定是否加速")
         # 不得用 navigator.connection.effectiveType 做地区判断。曾经加过
         # 「2g/3g 也走加速」，实测 headless Chromium 会随机把 effectiveType
         # 报成 3g，导致加速被误开；而且它说的是「我的链路慢」，不是
@@ -217,6 +223,36 @@ def main():
                 errors.append(f"商店页写「每批 {c} 个」与代码里的 MAX_PARALLEL={want} 不一致")
         # 不能吹「多线程下载大文件」：实测无收益，写了就是假话。
         # 提到它就必须同时给出「实测不成立」的依据，否则就是在当卖点讲。
+        # --- 多源轮转 + 换源重试（针对「链接经常失效」）---
+        # 旧实现把 8 个包全押在同一个源上，单个反代限速/挂掉就全灭。
+        # 实测 ghproxy.net 在 61 MB 包上 3/3 次下不完，这种源一旦被选中，
+        # 用户看到的就是「链接失效」。所以：
+        #   ① 源必须按包轮转（sourceFor 用取模分摊），不能全局只选一个；
+        #   ② 必须给用户逐包「换源重下」的入口——因为 CORS 决定了页面
+        #      无法自动感知下载失败，自动重试做不到，只能让用户点一下。
+        if "function sourceFor(" not in store:
+            errors.append("商店页缺少 sourceFor——多源轮转不见了，"
+                          "所有包会重新押在同一个源上")
+        # 必须断言「包下标 i 参与了取模」，而不是「某处出现了 % list.length」——
+        # 后者对 `((0) + (srcIdx[i]||0)) % list.length` 这种「退化成固定源」也成立。
+        if not re.search(r"i\s*%\s*list\.length", store):
+            errors.append("sourceFor 没有按包下标 i 轮转（i % list.length）——"
+                          "源没有被真正分摊到各个包上")
+        if not re.search(r"function\s+rotateFor\s*\(", store):
+            errors.append("商店页缺少 rotateFor——没有「换到下一个源」的能力")
+        # 断言「函数声明」——只搜 buildRetry 会在调用点命中，是橡皮图章
+        if not re.search(r"function\s+buildRetry\s*\(", store):
+            errors.append("商店页缺少 buildRetry 函数——没有逐包换源重下的入口，"
+                          "下载失败时用户只能撞墙")
+        if 'id="retry"' not in store:
+            errors.append("商店页缺少 #retry 容器——换源重下的 UI 没有落点")
+        # 只认按钮文案本身，不认周边说明里提到它
+        if not re.search(r"textContent\s*=\s*['\"]换源重下['\"]", store):
+            errors.append("商店页没有「换源重下」按钮的文案（textContent）")
+        # 官方直连必须仍然排在候选列表最后（兜底）
+        if not re.search(r"a\.concat\(\[d\]\)", store):
+            errors.append("candidates() 没有把官方直连排在候选列表末尾（失去兜底）")
+
         if "多线程下载" in store and "实测不成立" not in store:
             errors.append("商店页提到「多线程下载」却没有说明它实测不成立——"
                           "这会被读成卖点，而事实恰好相反")
