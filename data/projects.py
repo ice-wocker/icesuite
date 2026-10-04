@@ -17,10 +17,17 @@
 SITE = {
     "name": "ice 工坊",
     "domain": "icesuite.eu.org",
+    # base_url 才是「站点现在到底在哪」——它必须是一个**能打开的地址**。
+    # 2026-09 实测：自定义域 icesuite.eu.org 在公共 DNS 上是 NODATA
+    # （eu.org 侧没配 zone），解析失败，浏览器直接报错。CNAME 文件留着，
+    # 等 eu.org 那边配好了把 base_url 换回去即可，站点本身不受影响。
+    "base_url": "https://ice-wocker.github.io/icesuite",
     "tagline": "零依赖 · 离线优先 · 极小体积",
     "author": "ice-wocker",
     "author_url": "https://github.com/ice-wocker",
-    "desc": "ice-wocker 的十一个原创作品，全部零第三方依赖、离线可用、体积可验证。",
+    "desc": "ice-wocker 的十二个原创作品，全部零第三方依赖、离线可用、体积可验证。",
+    # 域名当前状态：pending = 已申请但公共 DNS 还打不开
+    "domain_status": "pending",
     "store_name": "ice 应用商店",
     "store_tagline": "一次下齐 · 全部离线可用 · 无追踪无广告",
 }
@@ -340,6 +347,32 @@ PROJECTS += [
         "tech": ["JavaScript", "Cloudflare Workers"],
         "known_limits": [
             "依赖上游免费额度政策，随时可能被调整或限制，稳定性不由本项目决定。",
+        ],
+    },
+    {
+        "id": "icesuite",
+        "repo": "icesuite",
+        "name": "ice 工坊（本站）",
+        "group": "services",
+        "pitch": "你正在看的这个站点：<b>零依赖生成器 + 纯静态产物</b>",
+        "summary": "把项目清单渲染成站点的生成器。它必须和账号的主张一致，所以也零依赖——"
+                   "不引 MkDocs / VitePress，只用 Python 标准库；产物是纯静态 HTML，"
+                   "克隆下来双击 index.html 就能看，换任何托管都不用改一行代码。",
+        "tags": ["静态站点", "Python", "零依赖", "自检"],
+        "metrics": [("HTML 页面", "15 个"), ("第三方依赖", "0"), ("构建脚本", "3 个")],
+        "status": "active",
+        "release_asset": None,
+        "highlights": [
+            ("唯一真相源", "data/projects.py 是内容源，scripts/build_site.py 只是投影；改内容只改一处。"),
+            ("自检比构建更严", "check_site.py 会 HEAD 每个下载链接、扫站内死链、对数搜索索引条目，"
+                             "CI 定时任务每周全量查一遍外链——站点最典型的翻车是「改了文件名但站点点进去 404」。"),
+            ("域名只有一处", "域名在 data/ 里只允许出现一次，CI 有 job 专门断言这件事，"
+                           "避免 CNAME 和配置打架导致 Pages 悄悄掉回 *.github.io。"),
+            ("产物即仓库之外", "site/ 不入库，只有 data/ 与 scripts/ 是真相源，克隆体积一直是几十 KB。"),
+        ],
+        "tech": ["Python", "HTML", "GitHub Actions"],
+        "known_limits": [
+            "本站是清单的投影，不提供评论、后台与统计——没有服务端，也没有账号系统。",
         ],
     },
 ]
