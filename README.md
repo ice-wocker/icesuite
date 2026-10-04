@@ -1,5 +1,12 @@
 # ice 工坊 · 站点源码
 
+> **English:** Zero-dependency portfolio + app-store static site in pure Python stdlib. Fork it and make it yours.
+
+[![CI](https://github.com/ice-wocker/icesuite/actions/workflows/ci.yml/badge.svg)](https://github.com/ice-wocker/icesuite/actions)
+[![Release](https://img.shields.io/github/v/release/ice-wocker/icesuite)](https://github.com/ice-wocker/icesuite/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Live](https://img.shields.io/badge/Live-Demo-brightgreen)](https://ice-wocker.github.io/icesuite/)
+
 > 一个作品集站点 + 应用商店，零第三方依赖，只用 Python 标准库从结构化数据渲染出纯静态 HTML。
 
 **在线**：<https://ice-wocker.github.io/icesuite/> ·
@@ -176,6 +183,9 @@ python3 scripts/fetch_releases.py --check    # 快照是否过期（CI 用）
 CI 有 job 专门校验它只出现一次。完整步骤见 `docs/DNS.md`。
 
 ---
+
+## Star History
+[![Star History Chart](https://api.star-history.com/svg?repos=ice-wocker/icesuite&type=Date)](https://star-history.com/#ice-wocker/icesuite&Date)
 
 ## 许可
 
