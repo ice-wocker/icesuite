@@ -46,6 +46,11 @@
 | `Intl.DateTimeFormat().resolvedOptions().timeZone` | 如 `Asia/Shanghai` | 最强的地区信号 |
 | `navigator.language` / `languages` | 如 `zh-CN` | 辅助 |
 
+> 2026-10 补了一条：旧的时区名单漏了 `Asia/Guangzhou`、`Asia/Chungking`，
+> 而个别国产 ROM 的默认时区正是前者。漏判的表现是「明明在大陆、页面却判定成直连」，
+> 用户看到的就是「加速没开」。所以名单按 IANA 的 CN/HK/MO/TW 集合补齐，
+> `check_site.py` 里加了一条守卫：名单必须覆盖这 4 个地区的全部 IANA 时区。
+
 > 刻意**不用** `navigator.connection.effectiveType`。曾加过「2g/3g 也走加速」，
 > 实测 headless Chromium 会随机把 `effectiveType` 报成 `3g`，导致加速被误开；
 > 而且这个信号的语义是「我的链路慢」，不是「我到 GitHub 远」——两回事。
@@ -94,14 +99,20 @@ MIRRORS = [
     },
 ]
 
+# ---------------------------------------------------------------- 地区判定规则
 # 判定「直连大概率很慢」的地区信号。命中任意一条即视为大陆网络环境。
 # 只做前缀/精确匹配，不做模糊包含——宁可漏判（退回直连）也不要误判。
+#
+# 这份名单来自 IANA 时区数据库里的「中国大陆 + 港澳台」集合。
+# 旧版漏了 Asia/Guangzhou、Asia/Shanghai 之外的几处（如 Asia/Harbin 有，
+# 但 Asia/Guangzhou 没有），而它在部分国产 ROM 上正是默认时区——
+# 漏判的后果是「明明在大陆却走了直连」，也就是用户看到的「还是慢」。
 SLOW_DIRECT_TIMEZONES = (
-    "Asia/Shanghai", "Asia/Chongqing", "Asia/Harbin", "Asia/Urumqi",
-    "Asia/Kashgar", "Asia/Macau", "Asia/Hong_Kong", "Asia/Taipei",
-    "PRC",
+    "Asia/Shanghai", "Asia/Chongqing", "Asia/Chungking", "Asia/Harbin",
+    "Asia/Urumqi", "Asia/Kashgar", "Asia/Guangzhou", "Asia/Macau",
+    "Asia/Hong_Kong", "Asia/Taipei", "PRC", "ROC",
 )
-SLOW_DIRECT_LANGS = ("zh-CN", "zh-Hans", "zh", "zh-Hant", "zh-TW", "zh-HK")
+SLOW_DIRECT_LANGS = ("zh-CN", "zh-Hans", "zh", "zh-Hant", "zh-TW", "zh-HK", "zh-MO")
 SLOW_DIRECT_REGIONS = ("CN", "HK", "MO", "TW")
 
 # 默认是否启用加速。注意这不是「默认走某个镜像」，而是

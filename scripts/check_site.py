@@ -11,6 +11,7 @@
 用户看到的是死链，构建却一片绿。
 """
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -67,13 +68,39 @@ def main():
     errors, warnings = [], []
 
     # --- 1. 产物结构 ---
-    for f in ("index.html", "style.css", "search.json", "CNAME", "404.html", "store.html"):
+    for f in ("index.html", "style.css", "search.json", "CNAME", "404.html", "store.html",
+              "tags.html", "sitemap.xml", "robots.txt", "feed.xml", "icon.svg"):
         if not (SITE_DIR / f).exists():
             errors.append(f"缺少产物 {f}")
     if (SITE_DIR / "CNAME").exists():
         got = (SITE_DIR / "CNAME").read_text(encoding="utf-8").strip()
         if got != site["domain"]:
             errors.append(f"CNAME 与配置不一致：{got} != {site['domain']}")
+
+    # --- 1.5 样式表必须能被完整解析 ---
+    # 这条是踩出来的：往 CSS 里插了一段 @media 却没闭合大括号，结果它之后
+    # 的规则**全部失效**，页面变成无样式纯文本——而浏览器不报错、文件 HTTP 200、
+    # 前几条规则照样能解析出来，肉眼也只在「打开页面」时才看得出来。
+    # 校验方式刻意从简：去掉注释与字符串后数大括号，必须配平且结尾为 0。
+    css_file = SITE_DIR / "style.css"
+    if css_file.exists():
+        css = css_file.read_text(encoding="utf-8")
+        stripped = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+        stripped = re.sub(r'"[^"\n]*"', '""', stripped)
+        depth, bad = 0, False
+        for ch in stripped:
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth < 0:
+                    bad = True
+                    break
+        if bad or depth != 0:
+            errors.append(f"style.css 大括号不配平（扫描结束时深度 {depth}）——"
+                          "这会让其后的规则全部失效，页面变成无样式纯文本")
+        if "prefers-reduced-motion" not in css:
+            errors.append("style.css 没有 prefers-reduced-motion 兜底")
 
     # --- 2. 项目页齐不齐 ---
     ids = [p["id"] for p in projects]
@@ -256,6 +283,166 @@ def main():
         if "多线程下载" in store and "实测不成立" not in store:
             errors.append("商店页提到「多线程下载」却没有说明它实测不成立——"
                           "这会被读成卖点，而事实恰好相反")
+
+    # --- 3.7 页面骨架的一致性（导航 / 主题 / SEO） ---
+    # 这一组盯的是「页面能打开、但少了一半东西」这类问题：
+    # 加了新页面却忘了导航项、某张页面漏了 canonical、某个链接指向不存在的锚点。
+    # 它们在浏览器里都不会报错，只是安静地缺一块。
+    pages = sorted(SITE_DIR.rglob("*.html"))
+    nav_counts = {}
+    for f in pages:
+        body = f.read_text(encoding="utf-8")
+        # 每个页面的导航里应该恰好有 4 个站内/站外链接（全部项目 / 商店 / 标签 / GitHub）
+        nav = re.search(r"<header class=\"top\">.*?</nav>", body, flags=re.S)
+        if not nav:
+            errors.append(f"{f.name} 没有导航栏")
+        else:
+            n = len(re.findall(r"<a [^>]*href=", nav.group(0)))
+            nav_counts.setdefault(n, []).append(f.name)
+        # 主题脚本必须在 <link rel=stylesheet> 之前，否则深色用户会闪一下浅色。
+        # 注意不能拿「data-theme 这个字符串」当下标 —— <html data-theme> 就在
+        # 第 2 行，永远排在样式表前面，那样写是橡皮图章（做过变异测试，抓不到）。
+        # 要定位的是**那段脚本**的结尾 </script> 与样式表标签的先后。
+        i_theme = body.find("localStorage.getItem(K)")
+        i_css = body.find('rel="stylesheet"')
+        if i_theme < 0:
+            errors.append(f"{f.name} 没有内联主题脚本（首屏会闪一帧错误配色）")
+        elif i_css >= 0 and i_theme > i_css:
+            errors.append(f"{f.name} 的主题脚本排在样式表之后——会先闪一帧错误配色")
+        # 每张可索引页面都要有 canonical，否则分享链接在别处是裸 URL
+        if 'rel="canonical"' not in body and 'name="robots" content="noindex' not in body:
+            errors.append(f"{f.name} 缺少 canonical（不是 noindex 页面就必须有）")
+        if 'rel="icon"' not in body:
+            errors.append(f"{f.name} 缺少 icon（浏览器标签页会是空白方块）")
+    if len(nav_counts) > 1:
+        errors.append("各页面的导航项数不一致："
+                      + "；".join(f"{k} 项 → {','.join(v)}" for k, v in sorted(nav_counts.items())))
+
+    # --- 3.8 站内锚点必须存在 ---
+    # 「标签」「技术栈」都做成了页内锚点，拼错一个就得到一个点了没反应的链接——
+    # 而站内链接检查只看文件是否存在，锚点它管不到。
+    anchors = {}
+    for f in pages:
+        body = f.read_text(encoding="utf-8")
+        anchors[f.name] = set(re.findall(r'id="([^"]+)"', body))
+    for f in pages:
+        body = re.sub(r"<script.*?</script>", "", f.read_text(encoding="utf-8"), flags=re.S)
+        for href in re.findall(r'href="([^"]*#[^"]+)"', body):
+            target, _, frag = href.partition("#")
+            if target and not target.endswith(".html"):
+                continue          # 外链锚点不查
+            target = target or f.name
+            if frag in ("main", ""):
+                continue
+            if frag not in anchors.get(target, set()):
+                errors.append(f"{f.name} → {href} 锚点不存在")
+
+    # --- 3.9 标签索引必须覆盖全部标签 ---
+    # 标签页是首页标签行的落点。少一个标签，首页那颗 pill 就是死链。
+    tags_page = (SITE_DIR / "tags.html").read_text(encoding="utf-8") if (SITE_DIR / "tags.html").exists() else ""
+    all_tags = sorted({t for p in projects for t in p["tags"]})
+    for t in all_tags:
+        if f"<h2>{t}" not in tags_page:
+            errors.append(f"tags.html 缺少标签「{t}」")
+    # 反向：标签索引里不许出现清单外的标签
+    listed = re.findall(r'<div class="indexgroup" id="[^"]+"><h2>([^<]+)', tags_page)
+    for t in listed:
+        if t.strip() not in all_tags:
+            errors.append(f"tags.html 出现了清单外的标签「{t.strip()}」")
+    if len(listed) != len(all_tags):
+        errors.append(f"tags.html 标签数 {len(listed)} != 清单里的 {len(all_tags)}")
+
+    # --- 3.10 Release 事实必须出现在项目页 ---
+    # 用户从搜索结果直接落到详情页，看不到版本和体积就得再跑一趟商店。
+    for p in projects:
+        page_file = SITE_DIR / f"{p['id']}.html"
+        if not page_file.exists():
+            continue
+        body = page_file.read_text(encoding="utf-8")
+        rel = releases.get(p["repo"])
+        if rel and rel["tag"] not in body:
+            errors.append(f"{p['id']}.html 没有显示当前版本 {rel['tag']}")
+
+    # --- 3.105 卡片结构：不允许 <a> 嵌套 <a> ---
+    # 卡片里既有「进详情页」的链接，又有「进标签页」的链接。如果把整张卡片
+    # 做成 <a>，浏览器会当场把内层 <a> 提到外层之外，卡片被拆成两半、
+    # 页面上多出几个只有技术栈的幽灵方块 —— 而 HTML 源码、构建日志、
+    # HTTP 状态码全都正常。肉眼不看页面是发现不了的，所以由这里钉住。
+    #
+    # 断言两件事：
+    #   ① 首页卡片是 <div class="card reveal">，不是 <a>；
+    #   ② 每张卡片里恰好有一个 .cardhit（整卡点击层），且**不含**嵌套的 <a>。
+    # 只数 .cardhit 是不够的——上一版就是只数这个，改回整卡 <a> 时依然全绿。
+    index_src = (SITE_DIR / "index.html").read_text(encoding="utf-8")
+    if re.search(r'<a [^>]*class="card[ "]', index_src):
+        errors.append("首页出现了 <a class=\"card\"> —— 整卡做成链接会把内层标签链接"
+                      "提到外层之外，卡片被浏览器拆碎（页面看起来缺标题、多出幽灵方块）")
+    card_blocks = re.findall(r'<div class="card reveal">(.*?)</div></div>', index_src, flags=re.S)
+    n_cards_expected = len(projects)
+    if len(card_blocks) != n_cards_expected:
+        errors.append(f"首页卡片数 {len(card_blocks)} != 项目数 {n_cards_expected}")
+    for i, block in enumerate(card_blocks):
+        if block.count('class="cardhit"') != 1:
+            errors.append(f"第 {i+1} 张卡片缺少唯一的整卡点击层 .cardhit")
+            break
+        rest = block.replace('<a class="cardhit"', '<span class="cardhit"', 1)
+        if re.search(r"<a [^>]*>(?:(?!</a>).)*?<a ", rest, flags=re.S):
+            errors.append(f"第 {i+1} 张卡片里出现了 <a> 嵌套 <a>")
+            break
+
+    # --- 3.11 地区名单必须覆盖 CN/HK/MO/TW 的 IANA 时区 ---
+    # 2026-10 的真问题：旧的时区名单漏了 Asia/Guangzhou，而个别国产 ROM
+    # 的默认时区正是它。漏判的表现是「明明在大陆，页面却判定直连」——
+    # 用户看到的是「加速没开」，而这里没有任何报错。
+    # 从**代码里**取这两个名单，而不是从文件文本里取：
+    # 文件正文有大段解释性注释，注释里也写着 "Asia/Guangzhou"（就是解释为什么补它），
+    # 拿文本做包含判断永远是绿的——第一次写这条守卫时正是这么写错的。
+    ns_m = {}
+    exec((ROOT / "data" / "mirrors.py").read_text(encoding="utf-8"), ns_m)
+    tz = set(ns_m.get("SLOW_DIRECT_TIMEZONES", ()))
+    must = {"Asia/Shanghai", "Asia/Guangzhou", "Asia/Urumqi", "Asia/Hong_Kong",
+            "Asia/Macau", "Asia/Taipei"}
+    for t in sorted(must - tz):
+        errors.append(f"data/mirrors.py 的 SLOW_DIRECT_TIMEZONES 缺少 {t}——"
+                      "该时区的用户会被误判成「直连不慢」，加速不会自动开")
+    langs = set(ns_m.get("SLOW_DIRECT_LANGS", ()))
+    for lg in ("zh-CN", "zh-TW", "zh-HK"):
+        if lg not in langs:
+            errors.append(f"data/mirrors.py 的 SLOW_DIRECT_LANGS 缺少 {lg}")
+    # 官方直连必须存在且 role=fallback，否则加速源全挂时无路可退
+    mirrors = ns_m.get("MIRRORS", [])
+    if not any(m.get("prefix") == "" for m in mirrors):
+        errors.append("data/mirrors.py 里没有官方直连（空前缀）——加速源全挂时无路可退")
+    if not any(m.get("role") == "fallback" for m in mirrors):
+        errors.append("data/mirrors.py 里没有 role=fallback 的兜底源")
+    # 每个加速前缀都必须是 https 且以 / 结尾：拼接方式是 prefix + 原始 URL，
+    # 少了结尾斜杠就会拼成 https://gh-proxy.comhttps://github.com/...
+    for m in mirrors:
+        px = m.get("prefix") or ""
+        if not px:
+            continue
+        if not px.startswith("https://"):
+            errors.append(f"下载源 {m.get('id')} 的前缀不是 https：{px}")
+        if not px.endswith("/"):
+            errors.append(f"下载源 {m.get('id')} 的前缀缺结尾斜杠：{px}"
+                          "（拼接方式为 prefix + URL，缺斜杠会拼出坏地址）")
+
+    # --- 3.12 sitemap / robots / feed 必须与产物一致 ---
+    sm = (SITE_DIR / "sitemap.xml").read_text(encoding="utf-8") if (SITE_DIR / "sitemap.xml").exists() else ""
+    for p in projects:
+        url = f"{p['id']}.html"
+        if f"/{url}<" not in sm:
+            errors.append(f"sitemap.xml 缺少 {url}")
+    robots = (SITE_DIR / "robots.txt").read_text(encoding="utf-8") if (SITE_DIR / "robots.txt").exists() else ""
+    if "Sitemap:" not in robots:
+        errors.append("robots.txt 没有声明 Sitemap")
+    feed = (SITE_DIR / "feed.xml").read_text(encoding="utf-8") if (SITE_DIR / "feed.xml").exists() else ""
+    if feed.count("<item>") != len(releases):
+        errors.append(f"feed.xml 条目数 {feed.count('<item>')} != 可安装应用 {len(releases)}"
+                      "（RSS 按发版推送，少一条就是漏了一个新版本）")
+    for rel in releases.values():
+        if rel["url"] not in feed:
+            errors.append(f"feed.xml 没有包含 {rel['asset']} 的下载地址")
 
     # --- 4. 外链可达性 ---
     checked = 0
