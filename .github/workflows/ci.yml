@@ -34,11 +34,15 @@ jobs:
           n=$(grep -o 'data-apk="' site/store.html | wc -l)
           test "$n" -ge 8
           echo "商店页可下载 $n 个"
-          # 构建过程不得联网：产物里的域名必须只有站内相对路径与已知外链。
-          # 这里只做一条便宜的断言——页面数量与 sitemap 条目数一致。
+          # sitemap 必须收录**所有可能被索引的页面**：项目页 + 首页 + 商店 + 标签。
+          # 不能拿 `页面数` 直接比——404.html 是 noindex 页面，本就不该进 sitemap，
+          # 差这一个才是对的。上一版这条断言写成 `sm >= pages`，于是它必然失败，
+          # 而且失败信息只会说「Process completed with exit code 1」，看不出是这条。
           sm=$(grep -c '<url>' site/sitemap.xml)
-          test "$sm" -ge $((pages))
-          echo "sitemap 条目 $sm"
+          want=$((pages))          # 页面数（含 404）
+          test "$sm" -ge $((want - 1)) || { echo "sitemap 只有 $sm 条，页面 $want 张（404 不计入）"; exit 1; }
+          grep -q '404.html' site/sitemap.xml && { echo "404.html 不该进 sitemap"; exit 1; }
+          echo "sitemap 条目 $sm（页面 $want，404 不计入）"
       - name: 构建应可重复（同一份输入产出同一份产物）
         run: |
           # 纯静态站的「可重复构建」是它自己的承诺之一。
