@@ -10,6 +10,7 @@
 门面没理由破自己的例。
 """
 import argparse
+import hashlib
 import html
 import json
 import re
@@ -34,6 +35,10 @@ SITE = {
     "author": "ice-wocker",
     "author_url": "https://github.com/ice-wocker",
     "desc": "ice-wocker 的原创作品集，全部零第三方依赖、离线可用、体积可验证。",
+    # base_url 只是一份**兜底**：真实值来自 data/projects.py。这里留着是为了
+    # 「只跑 build_site.py 也能出绝对 URL」——canonical / og:url / sitemap
+    # 都必须是绝对地址，缺了它们分享出去的卡片就是白板。
+    "base_url": "https://ice-wocker.github.io/icesuite",
 }
 
 STATUS_LABEL = {
@@ -137,8 +142,25 @@ def load():
 
 
 CSS = """
+/* 主题变量：三档（auto/light/dark）在 <html data-theme> 上，不是媒体查询里。
+   ------------
+   之前只有一套深色配色，<meta name="color-scheme"> 却写着 "dark light" ——
+   等于对浏览器说「两种都支持」，实际只有一种。浅色系统用户看到的是深色票，
+   而地址栏 / 滚动条却按浅色画，视觉上是断的。
+   现在 :root 是深色底（默认，也是打印外最常被分享的样子），
+   [data-theme=light] 与 prefers-color-scheme: light + theme=auto 两处覆盖。
+   变量名保持不变，所以下面所有组件样式一处都不用改。 */
 :root{--bg:#0b0f14;--panel:#131a22;--panel2:#0f151c;--border:#243040;--fg:#e6edf3;
---muted:#8b98a8;--accent:#5ad1ff;--accent2:#7ee787;--warn:#ffb454}
+--muted:#8b98a8;--accent:#5ad1ff;--accent2:#7ee787;--warn:#ffb454;
+--shadow:0 12px 40px rgba(0,0,0,.5);--markbg:#463300;--markfg:#ffd76e}
+html[data-theme=light]{--bg:#f6f8fa;--panel:#ffffff;--panel2:#eef2f6;--border:#d6dee6;
+--fg:#1b2430;--muted:#5b6a7a;--accent:#0b74b8;--accent2:#1a7f45;--warn:#9a5b00;
+--shadow:0 12px 40px rgba(20,30,45,.14);--markbg:#ffe89a;--markfg:#4a3600}
+@media (prefers-color-scheme:light){
+html[data-theme=auto]{--bg:#f6f8fa;--panel:#ffffff;--panel2:#eef2f6;--border:#d6dee6;
+--fg:#1b2430;--muted:#5b6a7a;--accent:#0b74b8;--accent2:#1a7f45;--warn:#9a5b00;
+--shadow:0 12px 40px rgba(20,30,45,.14);--markbg:#ffe89a;--markfg:#4a3600}
+}
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
 body{margin:0;background:var(--bg);color:var(--fg);
@@ -172,10 +194,28 @@ p{color:#cbd5e1}
 padding-bottom:.5em;border-bottom:1px solid var(--border);margin-bottom:1em}
 .group > .gh h2{margin:0;font-size:1.2rem}
 .group > .gh span{color:var(--muted);font-size:.86rem}
-.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
-.card{display:block;padding:16px 18px;background:var(--panel);border:1px solid var(--border);
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;
+grid-auto-rows:max-content;align-items:start}
+/* 整卡可点：用一个绝对定位的空 <a> 铺满卡片，而不是把整张卡片做成 <a>。
+   后者会和卡片里的标签链接形成 <a> 嵌套 <a>，HTML 解析器会把内层提到外层之外，
+   卡片当场被拆碎（真发生过，见 CHANGELOG）。 */
+.card{position:relative}
+.cardhit{position:absolute;inset:0;z-index:1;border-radius:12px}
+.cardhit:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.card .t a{color:var(--fg)}
+.card .techrow,.card .badges{position:relative;z-index:2}
+.card .techrow a,.card .badges a{position:relative;z-index:3}
+/* 注意：.cards 是容器、.card 是卡片。两者只差一个 s，但 .card 的
+   display:block 一旦被 .cards 的 display:grid 抢占（同优先级下后出现者赢），
+   卡片内的每个子元素都会变成一个网格项——页面上就会看到「标签散成一列方块」。
+   所以这里把 .card 的选择器写得更具体（.cards > .card），并且显式定死
+   容器只做「一列流式布局」，避免 grid 把子元素也当项。 */
+.cards > .card{display:flex;flex-direction:column}
+.card{padding:16px 18px;background:var(--panel);border:1px solid var(--border);
 border-radius:12px;color:var(--fg);transition:border-color .15s,transform .15s}
-.card:hover{border-color:var(--accent);text-decoration:none;transform:translateY(-2px)}
+.card:hover{border-color:var(--accent);transform:translateY(-2px)}
+.card:hover .t a{color:var(--accent)}
+.card .p{margin-bottom:auto}
 .card .t{font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .card .p{color:var(--muted);font-size:.86rem;line-height:1.6}
 .card .p b{color:var(--accent2);font-weight:600}
@@ -224,8 +264,78 @@ footer a{color:var(--muted)}
 .pager{display:flex;justify-content:space-between;gap:12px;margin-top:3em;
 padding-top:1.4em;border-top:1px solid var(--border);font-size:.9rem}
 .pager a{max-width:47%}
+/* ---- 可访问性与主题 ---- */
+.skip{position:absolute;left:-9999px;top:0;z-index:99;padding:10px 16px;
+background:var(--panel);border:1px solid var(--accent);border-radius:0 0 10px 0;color:var(--fg)}
+.skip:focus{left:0}
+.brand{color:var(--fg)}
+.brand:hover{text-decoration:none;color:var(--accent)}
+.themebtn{background:var(--panel);border:1px solid var(--border);color:var(--muted);
+border-radius:8px;width:32px;height:32px;font-size:15px;line-height:1;cursor:pointer;
+font-family:inherit;padding:0;display:inline-flex;align-items:center;justify-content:center}
+.themebtn:hover{color:var(--fg);border-color:var(--accent)}
+/* 焦点可见：键盘用户靠它找位置，鼠标用户看不到，所以不算视觉噪音 */
+a:focus-visible,button:focus-visible,.card:focus-visible,.hit:focus-visible{
+outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+/* 进场动效。
+   ------------
+   .rv 只负责「隐藏」，而隐藏的前提是 <html class="js"> 由内联脚本挂上。
+   上一版的做法是「JS 给卡片加 .rv」，看起来一样，但差一个致命细节：
+   如果卡片在视口内、而 IntersectionObserver 的回调因为任何原因没跑到
+   （后台标签页、无头浏览器、某些 WebView），元素会**永远停在 opacity:0** ——
+   页面白得像挂了，控制台一声不响。宁可没有动画，也不能让内容依赖 JS 才可见。
+   现在的兜底：<html class="js"> 只在脚本确实执行时出现，而 .rv 的初始态
+   另外带了 1.2s 的 CSS 动画兜底，即使回调不来，元素也会自己淡入。 */
+/* 兜底只管「JS 回调没来」的情况，且**不依赖滚动**：动画在元素被渲染时
+   就开始计时。1.2s 后任何还没进过视口的卡片也会自己显现。
+   宁可让淡入动效偶尔「提前」发生，也不能让内容停在不可见状态。 */
+.reveal{opacity:1;transform:none}
+html.js .reveal.rv{opacity:0;transform:translateY(10px);transition:opacity .35s,transform .35s;
+animation:rvfallback .01s 1.2s forwards}
+html.js .reveal.rv.on{opacity:1;transform:none;animation:none}
+@keyframes rvfallback{to{opacity:1;transform:none}}
+@media print{.reveal{opacity:1!important;transform:none!important;animation:none!important}}
+.pill{display:inline-block;padding:5px 12px;border-radius:20px;border:1px solid var(--border);
+background:var(--panel);color:var(--fg);font-size:.85rem;margin:0 6px 6px 0}
+.pill:hover{border-color:var(--accent);text-decoration:none}
+.pill b{color:var(--muted);font-weight:400;font-size:.85em;margin-left:5px}
+.pill.on{background:#0f3a4c;border-color:#1b5c78;color:#d3f3ff}
+.pill.on b{color:#9fd8f0}
+.filterbar{margin:1.1em 0 1.4em}
+.filterbar .pill{cursor:pointer;font-family:inherit}
+.empty{color:var(--muted);padding:18px;border:1px dashed var(--border);border-radius:10px}
+.chipmini{gap:6px;flex-wrap:wrap}
+.chipset,.techrow{display:flex;gap:6px;flex-wrap:wrap}
+.techrow{margin-top:9px;padding-top:8px;border-top:1px dashed var(--border)}
+.chipset{margin-top:8px}
+.chipset a,.techrow a{font-size:.76rem;padding:2px 9px;border-radius:20px;border:1px solid var(--border);
+color:var(--muted);background:var(--panel2)}
+.chipset a:hover,.techrow a:hover{color:var(--fg);border-color:var(--accent);text-decoration:none}
+.chipset span,.techrow span{font-size:.76rem;padding:2px 9px;border-radius:20px;border:1px dashed var(--border);
+color:var(--muted);background:transparent}
+.indexgroup{margin:1.6em 0 2.2em}
+.indexgroup h2{margin:0 0 .6em}
+.indexgroup ul{margin:0;padding-left:1.1em;color:var(--muted);font-size:.9rem}
+.indexgroup li{margin:.3em 0}
+.indexgroup li a{color:var(--accent)}
+.fine{color:var(--muted);font-size:.78rem;line-height:1.7}
+footer p{margin:.4em 0}
+/* 减少动效：放在最后，让它的 !important 覆盖前面所有 transition/animation。
+   上一版把它插在文件开头附近，却没有闭合的大括号——结果从这条规则之后
+   整份样式表全部失效，页面变成没有任何样式的纯文本，而浏览器不报错、
+   自检也查不出来（文件存在、HTTP 200、能解析出前 6 条规则）。
+   这正是「构建成功但站点坏掉」的典型：所以现在有一条守卫在做括号平衡检查。 */
+@media (prefers-reduced-motion:reduce){
+html{scroll-behavior:auto}
+*,*::before,*::after{animation-duration:.001ms!important;transition-duration:.001ms!important}
+}
 @media(max-width:640px){h1,.hero h1{font-size:1.5rem}.wrap{padding:0 16px}
-header.top nav{display:none}.stats{gap:18px}}
+/* 窄屏只留品牌与主题按钮：导航挤在一起会换行、且 GitHub 链接对移动端没意义。
+   标签索引页仍然可以从首页标签行与页脚进入。 */
+header.top nav a{display:none}
+header.top nav{display:flex;gap:8px}
+header.top nav{gap:10px}
+.cols{grid-template-columns:1fr!important}.stats{gap:18px}}
 /* ---- 应用商店 ---- */
 .storehead{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:.4em}
 .storehead h1{margin:0}
@@ -293,42 +403,120 @@ border-radius:12px}
 """
 
 SEARCH_JS = """
+/* 站内搜索：构建时预生成 search.json，运行时纯前端过滤。
+   ------------
+   三处刻意设计：
+
+   ① **必须能降级。** fetch 失败（本地 file:// 打开、静态托管漏了文件、
+      离线且没缓存）时，输入框不能变成一个「输什么都没反应」的死控件。
+      所以失败时提示「搜索索引没加载到」，并给出 tags.html 作为兜底入口。
+      纯静态站最常见的翻车就是这种「看起来有搜索，其实一直空结果」。
+
+   ② **键盘可用。** 上下键移动、回车打开、Esc 清空——搜索结果不是纯鼠标控件。
+      高亮项用 aria-selected 表达，不是只靠颜色。
+
+   ③ **中文按字符切分。** 英文按空格分词天经地义，中文没有空格：
+      「本地推理」这个词用户可能只打「推理」。所以中文查询额外用
+      二元切分（bigram）生成候选，再对结果做包含匹配。
+      这不是搜索引擎，但比「整串不匹配就零结果」好得多。 */
 (function(){
   var box=document.getElementById('q'), out=document.getElementById('results');
-  if(!box) return;
-  var data=null,timer=null;
-  fetch('search.json').then(function(r){return r.json()}).then(function(j){data=j;});
-  function esc(s){return s.replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c]})}
+  if(!box||!out) return;
+  var data=null,timer=null,idx=-1,hits=[],lang=(document.documentElement.lang||'zh').indexOf('zh')===0;
+
+  fetch('search.json').then(function(r){return r.json()}).then(function(j){
+    data=j;
+  }).catch(function(){
+    out.innerHTML='<p class="empty">'+(lang
+      ? '搜索索引没能加载（可能离线，或 search.json 缺失）。'
+      : 'Search index failed to load.')+
+      (lang?'可以改从 <a href="tags.html">标签索引</a> 浏览。':'')
+      +'</p>';
+  });
+
+  function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+
+  /* 中文没有词边界：纯 indexOf('推理') 能中，但纯 indexOf('本地推理') 就漏。
+     所以把查询串按中文段切成二元组，任一片命中即算候选。 */
+  function terms(kw){
+    var raw = kw.trim().toLowerCase();
+    if(!raw) return [];
+    var out = raw.split(/\s+/).filter(Boolean);
+    var cjk = raw.match(/[\u4e00-\u9fa5]+/g) || [];
+    for(var i=0;i<cjk.length;i++){
+      var t = cjk[i];
+      if(t.length <= 2){ out.push(t); continue; }
+      for(var k=0;k+2<=t.length;k++) out.push(t.substr(k,2));
+    }
+    return out.filter(function(v,n,a){return a.indexOf(v)===n});
+  }
+
+  function score(hay, ts, title){
+    var s=0;
+    for(var i=0;i<ts.length;i++){
+      var at = hay.indexOf(ts[i]);
+      if(at < 0) return -1;
+      s += (title.indexOf(ts[i]) >= 0) ? 50 : 1;
+    }
+    return s;
+  }
+
   function render(kw){
+    idx=-1;
     if(!data) return;
-    kw=kw.trim().toLowerCase();
-    if(!kw){out.innerHTML='';return;}
-    var terms=kw.split(/\\s+/).filter(Boolean),hits=[];
+    var ts = terms(kw);
+    if(!ts.length){ out.innerHTML=''; hits=[]; return; }
+    hits = [];
     for(var i=0;i<data.length;i++){
-      var d=data[i],hay=(d.title+' '+d.summary+' '+d.text+' '+d.tags.join(' ')).toLowerCase();
-      var score=0,ok=true;
-      for(var t=0;t<terms.length;t++){
-        var idx=hay.indexOf(terms[t]);
-        if(idx<0){ok=false;break;}
-        score+=(d.title.toLowerCase().indexOf(terms[t])>=0)?50:1;
-      }
-      if(ok) hits.push([score,d]);
+      var d=data[i];
+      var hay=(d.title+' '+d.summary+' '+d.text+' '+d.tags.join(' ')).toLowerCase();
+      var sc = score(hay, ts, d.title.toLowerCase());
+      if(sc >= 0) hits.push([sc, d]);
     }
     hits.sort(function(a,b){return b[0]-a[0]});
-    hits=hits.slice(0,30);
-    if(!hits.length){out.innerHTML='<p class="d" style="color:#8b98a8">没有匹配的项目。</p>';return;}
+    hits = hits.slice(0,30);
+    if(!hits.length){
+      out.innerHTML='<p class="empty">'+(lang?'没有匹配的项目。':'No matching projects.')+'</p>';
+      return;
+    }
     out.innerHTML=hits.map(function(h){
       var d=h[1],s=d.summary||'';
-      for(var t=0;t<terms.length;t++){
-        var re=new RegExp('('+terms[t].replace(/[.*+?^${}()|[\\]\\\\]/g,'\\\\$&')+')','ig');
+      for(var t=0;t<ts.length;t++){
+        var re=new RegExp('('+ts[t].replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','ig');
         s=s.replace(re,'<mark>$1</mark>');
       }
-      return '<a class="hit" href="'+d.url+'"><div>'+esc(d.title)+'</div>'+
-             '<div class="d">'+esc(d.group)+' · '+d.tags.join(' / ')+'</div>'+
+      return '<a class="hit" href="'+esc(d.url)+'" role="option" aria-selected="false">'+
+             '<div>'+esc(d.title)+'</div>'+
+             '<div class="d">'+esc(d.group)+' · '+esc(d.tags.join(' / '))+'</div>'+
              '<div class="d">'+s+'</div></a>';
     }).join('');
+    out.setAttribute('role','listbox');
   }
-  box.addEventListener('input',function(){clearTimeout(timer);timer=setTimeout(function(){render(box.value)},120)});
+
+  function move(step){
+    var items = out.querySelectorAll('.hit');
+    if(!items.length) return;
+    if(idx>=0 && items[idx]) items[idx].setAttribute('aria-selected','false');
+    idx = (idx + step + items.length) % items.length;
+    items[idx].setAttribute('aria-selected','true');
+    items[idx].scrollIntoView({block:'nearest'});
+  }
+
+  box.addEventListener('input',function(){
+    clearTimeout(timer);
+    timer=setTimeout(function(){render(box.value)},120);
+  });
+  /* 键盘：上下键在结果间移动，回车打开，Esc 清空。
+     没有这一段时，搜索结果对键盘用户等于不存在。 */
+  box.addEventListener('keydown',function(e){
+    if(e.key==='ArrowDown'){ e.preventDefault(); move(1); }
+    else if(e.key==='ArrowUp'){ e.preventDefault(); move(-1); }
+    else if(e.key==='Escape'){ box.value=''; render(''); }
+    else if(e.key==='Enter'){
+      var el = idx>=0 ? out.querySelectorAll('.hit')[idx] : out.querySelector('.hit');
+      if(el){ window.location.href = el.getAttribute('href'); }
+    }
+  });
 })();
 """
 
@@ -567,15 +755,25 @@ STORE_JS = r"""
     if(quit) return;
     if(cursor >= apps.length){
       if(bar) bar.style.width = '100%';
+      /* 全发完之后「继续」是**有意义的**：浏览器对同一页面的连续下载有限流，
+         用户处理完系统弹窗后还需要再点一次才能补齐。所以这里重新亮出来，
+         不是常显、也不是消失——上一版把它 display:none 了，等于让用户
+         卡在「8 个里只下来 3 个」而界面上没有任何下一步。 */
       if(now) now.textContent = '已发起全部 ' + apps.length + ' 个下载（多源轮转）。'
         + '浏览器只会放行一部分，点「继续」补齐剩下的。';
-      if(nextBtn) nextBtn.style.display = 'none';
+      if(nextBtn) nextBtn.style.display = '';
       paint();
       buildRetry();
       return;
     }
     /* 并发发起多个包。实测单连接吞吐固定，串行只会把 N 次建连的等待叠起来；
-       而多源轮转让这批包分摊到不同源上，避免一个反代限速拖垮全部。 */
+       而多源轮转让这批包分摊到不同源上，避免一个反代限速拖垮全部。
+
+       坑：这里**不能再 setTimeout 递归**。旧实现在每批之后挂 1.5 秒再发下一批，
+       遇到浏览器弹「允许多个下载」的确认框时，用户还在点确认，页面已经又
+       发了一批——两批叠在一起，被限流吞掉的那几个只能靠「换源重下」救。
+       所以改成：一批发完就停，等用户点「继续」。限流是浏览器的规则，
+       我们只能配合它，不能绕过它。 */
     var burst = 0;
     while(burst < MAX_PARALLEL && cursor < apps.length){
       fire(cursor);
@@ -583,9 +781,15 @@ STORE_JS = r"""
       paint();
     }
     if(now){
-      now.textContent = '已并行发起 ' + cursor + ' / ' + apps.length + ' 个下载…';
+      now.textContent = cursor < apps.length
+        ? '已发起 ' + cursor + ' / ' + apps.length + ' 个下载。处理完浏览器的下载提示后点「继续」发下一批。'
+        : '已发起 ' + cursor + ' / ' + apps.length + ' 个下载。';
     }
-    timer = setTimeout(tick, cursor < apps.length ? 1500 : 200);
+    if(cursor < apps.length){
+      if(nextBtn) nextBtn.style.display = '';
+    }else{
+      timer = setTimeout(tick, 200);
+    }
   }
 
   function start(){
@@ -653,7 +857,8 @@ STORE_JS = r"""
     if(nextBtn) nextBtn.addEventListener('click', function(){
       quit = false;
       nextBtn.style.display = 'none';
-      timer = setTimeout(tick, 300);
+      clearTimeout(timer);
+      timer = setTimeout(tick, 120);
     });
     /* 停止按钮不能再用 .qx 泛匹配——「继续」按钮上也有这个类，
        泛匹配会让「继续」同时触发停止，表现为「点继续反而停了」 */
@@ -669,48 +874,276 @@ STORE_JS = r"""
 })();
 """
 
-def page(site, title, body, depth=0, search=False, store=False, mirrors=None):
+# ---------------------------------------------------------------------------
+# 页面骨架
+# ---------------------------------------------------------------------------
+# 站内导航只在这里定义一次。之所以要「定义一次」而不是每处手写：
+# 加一个导航项时，手写的版本总会有某几个页面被忘掉——而这类遗漏在页面上
+# 完全看不出来（只是少一个链接），只有用户点不到才发现。check_site.py 里
+# 有一条守卫断言**每个页面**的导航项数一致。
+
+THEME_JS = r"""
+/* 主题：三档（跟随系统 / 浅色 / 深色）。
+   ------------
+   为什么要「三档」而不是「只跟随系统」：深色偏好是**设备级**设置，
+   但用户在这个站点上的偏好往往和系统不同（比如系统夜里自动切深色，
+   而他就想看清图表）。所以给显式覆盖，并把选择存 localStorage。
+
+   为什么这段脚本必须内联在 <head> 里、且在任何样式之前跑：
+   否则深色用户会先看到一帧浅色再被切过去（FOUC 闪烁）。
+   它做且只做一件事——把 data-theme 挂到 <html> 上，**不改任何样式**。 */
+(function(){
+  var K = 'icesuite.theme';
+  var v = null;
+  try{ v = localStorage.getItem(K); }catch(e){}
+  var t = (v === 'light' || v === 'dark') ? v : 'auto';
+  document.documentElement.setAttribute('data-theme', t);
+})();
+"""
+
+THEME_BTN_JS = r"""
+/* 主题切换按钮：auto → light → dark → auto 循环。
+   每次点击都改 data-theme 并落盘；'auto' 时移除显式覆盖，
+   交回给 prefers-color-scheme。 */
+(function(){
+  var K = 'icesuite.theme';
+  var btn = document.getElementById('themebtn');
+  if(!btn) return;
+  var order = ['auto','light','dark'];
+  var label = {auto:'🖥', light:'☀', dark:'🌙'};
+  var title = {auto:'跟随系统', light:'浅色', dark:'深色'};
+  function cur(){
+    var t = document.documentElement.getAttribute('data-theme');
+    return order.indexOf(t) >= 0 ? t : 'auto';
+  }
+  function paint(){
+    var t = cur();
+    btn.textContent = label[t];
+    btn.title = '主题：' + title[t] + '（点击切换）';
+    btn.setAttribute('aria-label', btn.title);
+  }
+  btn.addEventListener('click', function(){
+    var next = order[(order.indexOf(cur()) + 1) % order.length];
+    document.documentElement.setAttribute('data-theme', next);
+    try{ localStorage.setItem(K, next); }catch(e){}
+    paint();
+  });
+  paint();
+})();
+"""
+
+REVEAL_JS = r"""
+/* 卡片入场：IntersectionObserver 逐张淡入。
+   ------------
+   一个刻意的限制：**没有 Observer 或用户偏好减少动效时，必须有兜底**。
+   做法是「先给全部卡片加上 .rv，再由 JS 决定要不要观察」——但那样
+   JS 挂了就全白。所以反过来：默认不加类，JS 存在才加 .rv 并观察。
+   纯静态站最忌讳的就是「JS 一坏整页空白」。 */
+(function(){
+  if(!('IntersectionObserver' in window)) return;
+  if(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  /* 只认 [data-rv] 本身，不要再往下选子元素：上一版把 .rv 挂在 html 上，
+     结果卡片里的每个 <span> 都被当成「待淡入元素」，页面上技术栈散成一列方块。 */
+  var els = document.querySelectorAll('[data-rv]');
+  if(!els.length) return;
+  /* 先挂 .js 再挂 .rv：顺序反了会闪一帧「有内容 → 变透明 → 淡入」。
+     挂上 <html class="js"> 的同时，CSS 里那 1.2s 的兜底动画就已经在走，
+     所以即使下面的 observer 一次都不回调，内容也会自己出现。 */
+  document.documentElement.classList.add('js');
+  for(var i=0;i<els.length;i++){ els[i].classList.add('rv'); }
+  var io = new IntersectionObserver(function(list){
+    list.forEach(function(e){
+      if(e.isIntersecting){ e.target.classList.add('on'); io.unobserve(e.target); }
+    });
+  }, {rootMargin: '0px 0px -8% 0px'});
+  for(var j=0;j<els.length;j++){ io.observe(els[j]); }
+})();
+"""
+
+
+def nav_items(site, prefix):
+    """导航项只在这里出现一次。"""
+    return [
+        (f"{prefix}index.html", "全部项目"),
+        (f"{prefix}store.html", "应用商店"),
+        (f"{prefix}tags.html", "标签"),
+        (f"{site['author_url']}", "GitHub"),
+    ]
+
+
+def page(site, title, body, depth=0, search=False, store=False, mirrors=None,
+         desc=None, og_type="website", canonical=None, jsonld=None, robots="index,follow"):
+    """渲染一张页面。
+
+    desc / canonical / jsonld 不是可选的锦上添花：没有 canonical 与 og:url，
+    分享出去的链接在别的站点上就是一串裸 URL；desc 全站共用一句
+    「作品集简介」，等于每张页面在搜索结果里长得一样。
+    所以这三样都由调用方按页面类型给出，缺省值只作兜底。
+    """
     prefix = "../" * depth
-    extra = f"<script>{SEARCH_JS}</script>" if search else ""
+    base = site.get("base_url", "").rstrip("/")
+    url = canonical or (f"{base}/" if not depth else "")
+    desc = desc or site["desc"]
+
+    script = f"<script>{SEARCH_JS}</script>" if search else ""
     if store:
-        extra += f"<script>window.__DL={json.dumps(mirrors or {}, ensure_ascii=False)}</script>"
-        extra += f"<script>{STORE_JS}</script>"
-    return f"""<!doctype html>
-<html lang="zh-CN">
+        script += f"<script>window.__DL={json.dumps(mirrors or {}, ensure_ascii=False)}</script>"
+        script += f"<script>{STORE_JS}</script>"
+
+    ld = ""
+    if jsonld:
+        ld = ('<script type="application/ld+json">'
+              + json.dumps(jsonld, ensure_ascii=False, separators=(",", ":"))
+              + "</script>\n")
+
+    canonical_tag = f'<link rel="canonical" href="{esc(url)}">\n' if url else ""
+    og_url = f'<meta property="og:url" content="{esc(url)}">\n' if url else ""
+
+    nav = "".join(f'<a href="{esc(h)}">{esc(t)}</a>' for h, t in nav_items(site, prefix))
+
+    html = f"""<!doctype html>
+<html lang="zh-CN" data-theme="auto">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{esc(title)}</title>
-<meta name="description" content="{esc(site['desc'])}">
+<meta name="description" content="{esc(desc)}">
+<meta name="robots" content="{robots}">
 <meta name="color-scheme" content="dark light">
+<meta name="author" content="{esc(site['author'])}">
+<meta name="theme-color" content="#0b0f14" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f8fa" media="(prefers-color-scheme: light)">
+<link rel="icon" href="{prefix}icon.svg" type="image/svg+xml">
+<link rel="alternate" type="application/rss+xml" title="{esc(site['name'])} · 作品更新" href="{prefix}feed.xml">
+{canonical_tag}<meta property="og:site_name" content="{esc(site['name'])}">
 <meta property="og:title" content="{esc(title)}">
-<meta property="og:description" content="{esc(site['desc'])}">
-<meta property="og:type" content="website">
+<meta property="og:description" content="{esc(desc)}">
+<meta property="og:type" content="{og_type}">
+{og_url}<meta property="og:locale" content="zh_CN">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="{esc(title)}">
+<meta name="twitter:description" content="{esc(desc)}">
+<script>{THEME_JS}</script>
 <link rel="stylesheet" href="{prefix}style.css">
-</head>
+{ld}</head>
 <body>
+<a class="skip" href="#main">跳到正文</a>
 <header class="top"><div class="wrap">
-<span class="brand">🧊 <em>ice</em> 工坊</span>
+<a class="brand" href="{prefix}index.html">🧊 <em>ice</em> 工坊</a>
 <nav>
-<a href="{prefix}index.html">全部项目</a>
-<a href="{prefix}store.html">应用商店</a>
-<a href="https://github.com/{site['author']}">GitHub</a>
+{nav}
+<button class="themebtn" type="button" id="themebtn" aria-label="切换主题">🖥</button>
 </nav>
 </div></header>
-<main class="wrap">
+<main class="wrap" id="main">
 {body}
 </main>
 <footer><div class="wrap">
-{esc(site['tagline'])} · 站点由 <code>scripts/build_site.py</code> 从 <code>data/projects.py</code> 生成（零依赖、纯静态）。<br>
-<a href="https://github.com/{site['author']}">{site['author']} on GitHub</a>
+<p>{esc(site['tagline'])} · 站点由 <code>scripts/build_site.py</code> 从 <code>data/projects.py</code> 生成（零依赖、纯静态）。</p>
+<p><a href="{prefix}index.html">全部项目</a> · <a href="{prefix}store.html">应用商店</a> ·
+<a href="{prefix}tags.html">标签索引</a> · <a href="{prefix}sitemap.xml">站点地图</a> ·
+<a href="{prefix}feed.xml">RSS</a> · <a href="{site['author_url']}">{esc(site['author'])} on GitHub</a></p>
+<p class="fine">页面上的版本号、体积、发布时间均由构建时从仓库内快照渲染，可核对；不含统计脚本、不含 Cookie、不请求任何第三方域。</p>
 </div></footer>
-{extra}
+<script>{THEME_BTN_JS}</script>
+<script>{REVEAL_JS}</script>
+{script}
 </body>
 </html>"""
+    return html
+
+
+
+# 允许出现在文案里的行内标签。数据源是仓库内的 Python 文件（不是外部输入），
+# 但仍然先整体转义再按白名单放回：这样即使以后有人从接口拼文案进来，
+# 也只会得到字面文本，不会得到一段可执行 HTML。
+RICH_TAGS = ("code", "b", "em", "kbd")
+
+
+def rich(s):
+    out = esc(s)
+    for t in RICH_TAGS:
+        out = re.sub(rf"&lt;{t}&gt;(.*?)&lt;/{t}&gt;",
+                     lambda m, t=t: f"<{t}>{m.group(1)}</{t}>", out, flags=re.S)
+    return out
 
 
 def badge(text, kind):
     return f'<span class="badge {kind}">{esc(text)}</span>'
+
+
+def _jsonld_project(site, p):
+    """单个项目的结构化数据。类型用 SoftwareApplication —— 这些确实是可安装的应用，
+    搜索引擎能据此展示「软件」富摘要。没有可安装产物的项目不带该类型，
+    它们不是软件，硬套只是为了 SEO 而撒谎。"""
+    base = site.get("base_url", "").rstrip("/")
+    node = {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication" if p["installable"] else "CreativeWork",
+        "name": p["name"],
+        "description": re.sub(r"<[^>]+>", "", p["summary"]),
+        "url": f"{base}/{p['url']}",
+        "applicationCategory": "UtilitiesApplication",
+        "operatingSystem": "Android" if p.get("platform") == "android" else "Any",
+        "author": {"@type": "Person", "name": site["author"], "url": site["author_url"]},
+        "isPartOf": {"@type": "WebSite", "name": site["name"], "url": base + "/"},
+        "offers": {"@type": "Offer", "price": "0", "priceCurrency": "CNY"},
+        "license": "https://opensource.org/licenses/MIT",
+    }
+    if p["installable"]:
+        node["softwareVersion"] = p["version"]
+        node["fileSize"] = f"{p['size_bytes']} B"
+        node["downloadUrl"] = p["dl_release"]
+        node["datePublished"] = p["published_at"]
+    return node
+
+
+def _jsonld_site(site, projects, apps):
+    base = site.get("base_url", "").rstrip("/")
+    return {
+        "@context": "https://schema.org",
+        "@graph": [
+            {
+                "@type": "WebSite",
+                "name": site["name"],
+                "alternateName": site["tagline"],
+                "url": base + "/",
+                "inLanguage": "zh-CN",
+                "description": site["desc"],
+                "author": {"@type": "Person", "name": site["author"],
+                           "url": site["author_url"]},
+                "potentialAction": {
+                    "@type": "SearchAction",
+                    "target": base + "/?q={search_term_string}",
+                    "query-input": "required name=search_term_string",
+                },
+            },
+            {
+                "@type": "ItemList",
+                "name": site["store_name"],
+                "numberOfItems": len(apps),
+                "itemListElement": [
+                    {"@type": "ListItem", "position": i + 1,
+                     "url": f"{base}/{p['url']}", "name": p["name"]}
+                    for i, p in enumerate(apps)
+                ],
+            },
+        ],
+    }
+
+
+def _tag_index(projects):
+    """标签 → 项目。首页的标签行与 tags.html 都用它，保证两边永远一致。"""
+    idx = {}
+    for p in projects:
+        for t in p["tags"]:
+            idx.setdefault(t, []).append(p)
+    return dict(sorted(idx.items(), key=lambda kv: (-len(kv[1]), kv[0])))
+
+
+def _rel_time(site, published_at):
+    """把 ISO 日期变回人话。只用来做「最近更新」排序，页面显示仍用原始日期。"""
+    return published_at or ""
 
 
 def build(site, groups, projects, mirrors=None):
@@ -718,12 +1151,18 @@ def build(site, groups, projects, mirrors=None):
     apps = [p for p in projects if p["installable"]]
     n_apps = len(apps)
     total = sum(p["size_bytes"] for p in apps)
+    base = site.get("base_url", "").rstrip("/")
     if OUT.exists():
         shutil.rmtree(OUT)
     OUT.mkdir(parents=True)
     (OUT / "style.css").write_text(CSS, encoding="utf-8")
 
+    tagmap = _tag_index(projects)
+    tag_slug = {t: f"tags.html#{slugify(t)}" for t in tagmap}
+
     # ---- 搜索索引 ----
+    # text 里刻意塞进 tags / metrics / highlights / tech —— 搜索命中「i8mm」
+    # 或「断点续传」这种词才有意义，只搜标题等于没搜。
     search = []
     for p in projects:
         text = " ".join([p["summary"], p["group_label"], " ".join(p["tags"]),
@@ -732,7 +1171,8 @@ def build(site, groups, projects, mirrors=None):
                          " ".join(p["tech"])])
         search.append({
             "title": p["name"], "group": p["group_label"], "tags": p["tags"],
-            "summary": p["summary"], "text": text, "url": p["url"],
+            "summary": re.sub(r"<[^>]+>", "", p["summary"]),
+            "text": re.sub(r"<[^>]+>", "", text), "url": p["url"],
         })
     (OUT / "search.json").write_text(json.dumps(search, ensure_ascii=False), encoding="utf-8")
 
@@ -742,7 +1182,8 @@ def build(site, groups, projects, mirrors=None):
 
     # ---- 首页 ----
     n_release = sum(1 for p in projects if p["dl_release"])
-    n_zero = sum(1 for p in projects if "零依赖" in p["tags"] or "零权限" in p["tags"] or "零广告" in p["tags"])
+    n_zero = sum(1 for p in projects if any(k in t for t in p["tags"]
+                                            for k in ("零依赖", "零权限", "零广告", "单 dex")))
     sections = []
     for slug, label, desc in groups:
         items = by_group.get(slug, [])
@@ -753,12 +1194,23 @@ def build(site, groups, projects, mirrors=None):
             st, kind = STATUS_LABEL.get(p["status"], ("", ""))
             badges = "".join(badge(t, "") for t in p["tags"][:3])
             badges += badge(st, kind)
+            # 技术栈做成「可点」，但只指向真实存在的标签——tech 里有的词
+            # 并不是标签（比如 "Java"），硬链到 #Java 会得到死锚点。
+            chips = "".join(
+                (f'<a href="{esc(tag_slug[t])}">{esc(t)}</a>' if t in tag_slug else f'<span>{esc(t)}</span>')
+                for t in p["tech"][:4])
+            # 卡片**不能**是 <a>：卡片里还有指向标签索引的链接，而 HTML 不允许
+            # <a> 嵌套 <a>。浏览器不会报错，它会当场把内层 <a> 提到外层之外——
+            # 于是卡片被拆成两半，还多出几个「只有技术栈、没有标题」的幽灵卡片，
+            # 而构建、自检、HTTP 状态码全都正常。所以改成一个容器 + 一个铺满的标题链接。
             cards.append(
-                f'<a class="card" href="{p["url"]}">'
-                f'<div class="t">{esc(p["name"])}</div>'
+                f'<div class="card reveal">'
+                f'<a class="cardhit" href="{p["url"]}" data-rv aria-label="{esc(p["name"])}"></a>'
+                f'<div class="t"><a href="{p["url"]}">{esc(p["name"])}</a></div>'
                 f'<div class="p">{p["pitch"]}</div>'
                 f'<div class="badges">{badges}</div>'
-                f'</a>'
+                f'<div class="techrow">{chips}</div>'
+                f'</div>'
             )
         sections.append(
             f'<section class="group" id="{slug}"><div class="gh">'
@@ -766,45 +1218,93 @@ def build(site, groups, projects, mirrors=None):
             f'<div class="cards">{"".join(cards)}</div></section>'
         )
 
+    # 最近更新：按 Release 日期倒序取前 3。没有日期的不参与排序，
+    # 免得「没发过版的项目」被排到最前面当成刚更新。
+    recent = sorted([p for p in projects if p["published_at"]],
+                    key=lambda x: x["published_at"], reverse=True)[:3]
+    recent_html = "".join(
+        f'<li><a href="{p["url"]}">{esc(p["name"])}</a> '
+        f'<span class="fine">{esc(p["version"] or "")} · {esc(p["published_at"])}'
+        f'{(" · " + p["size_text"]) if p["size_text"] else ""}</span></li>'
+        for p in recent
+    )
+
+    top_tags = list(tagmap.items())[:14]
+    tag_html = "".join(
+        f'<a class="pill" href="{esc(tag_slug[t])}">{esc(t)} <b>{len(ps)}</b></a>'
+        for t, ps in top_tags
+    )
+
     body = f"""<div class="hero">
 <p class="kicker">{esc(site['tagline'])}</p>
 <h1>{esc(site['name'])}</h1>
 <p class="lead">{esc(site['desc'])}</p>
 <div class="actions">
-<a class="btn primary" href="store.html">🧊 打开应用商店（{n_apps} 个可安装）</a>
+<a class="btn primary" href="store.html">🧊 打开应用商店（{n_apps} 个可安装，共 {human_size(total)}）</a>
+<a class="btn" href="{esc(site['author_url'])}">源码都在 GitHub</a>
 </div>
 </div>
 <div class="stats">
 <div><b>{len(projects)}</b>个作品</div>
 <div><b>{n_release}</b>个可直接下载</div>
-<div><b>0</b>个 fork</div>
-<div><b>0</b>个第三方依赖（口径见各项目页）</div>
+<div><b>{n_zero}</b>个零第三方依赖</div>
+<div><b>{len(tagmap)}</b>个标签</div>
 </div>
-<input id="q" class="searchbox" type="search" placeholder="搜索 {len(projects)} 个项目（名称 / 简介 / 技术栈）…" autocomplete="off">
+<input id="q" class="searchbox" type="search" role="combobox" aria-expanded="false"
+ aria-controls="results" aria-autocomplete="list"
+ placeholder="搜索 {len(projects)} 个项目（名称 / 简介 / 技术栈 / 亮点）…" autocomplete="off">
 <div id="results"></div>
+<div class="filterbar">{tag_html}<a class="pill" href="tags.html">全部标签 →</a></div>
+<details class="help" style="margin:1.2em 0 2em">
+<summary>最近更新</summary>
+<ul style="margin:.7em 0 0;padding-left:1.3em">{recent_html}</ul>
+</details>
 """ + "\n".join(sections)
-    (OUT / "index.html").write_text(page(site, f"{site['name']} · {site['tagline']}", body, 0, search=True),
-                                   encoding="utf-8")
+    (OUT / "index.html").write_text(
+        page(site, f"{site['name']} · {site['tagline']}", body, 0, search=True,
+             desc=site["desc"], canonical=base + "/",
+             jsonld=_jsonld_site(site, projects, apps)),
+        encoding="utf-8")
 
     # ---- 各项目页 ----
     for i, p in enumerate(projects):
         st, kind = STATUS_LABEL.get(p["status"], ("", ""))
         metrics = "".join(f'<div><b>{esc(v)}</b><span>{esc(k)}</span></div>' for k, v in p["metrics"])
-        hls = "".join(f'<li><b>{esc(t)}</b><span>{esc(d)}</span></li>' for t, d in p["highlights"])
+        hls = "".join(f'<li><b>{esc(t)}</b><span>{rich(d)}</span></li>' for t, d in p["highlights"])
         techs = "".join(f'<span class="badge">{esc(t)}</span>' for t in p["tech"])
         limits = "".join(f"<li>{esc(x)}</li>" for x in p.get("known_limits", []))
         limits_block = (
             f'<div class="note"><b>已知限制</b><ul>{limits}</ul></div>' if limits else ""
         )
+        # 「这个包现在是什么」：以前只在商店页显示，详情页反而没有。
+        # 用户从搜索结果直接落到详情页时，看不到版本和体积，就得再跑一趟商店。
+        facts = []
+        if p["version"]:
+            facts.append(("当前版本", p["version"]))
+        if p["size_text"]:
+            facts.append(("安装包体积", p["size_text"]))
+        if p.get("min_android"):
+            facts.append(("最低系统", f"Android {p['min_android']}+"))
+        if p.get("arch"):
+            facts.append(("ABI", p["arch"]))
+        if p["published_at"]:
+            facts.append(("发布时间", p["published_at"]))
+        if p["downloads"]:
+            facts.append(("累计下载", f"{p['downloads']} 次"))
+        facts_html = "".join(f'<div><b>{esc(v)}</b><span>{esc(k)}</span></div>' for k, v in facts)
+
         actions = []
         if p["dl_release"]:
-            actions.append(f'<a class="btn primary" href="{p["dl_release"]}">⬇ 下载最新 APK</a>')
+            actions.append(f'<a class="btn primary" href="{p["dl_release"]}">⬇ 下载最新 APK'
+                           f'{"（" + p["size_text"] + "）" if p["size_text"] else ""}</a>')
         if p.get("external_url"):
             actions.append(f'<a class="btn" href="{p["external_url"]}">{esc(p["external_label"])}</a>')
         actions.append(f'<a class="btn" href="{p["repo_url"]}">源码仓库</a>')
         if p["dl_release"]:
             actions.append(f'<a class="btn" href="{p["releases_url"]}">全部版本</a>')
 
+        tags_line = " ".join(
+            f'<a class="badge" href="{esc(tag_slug[t])}">{esc(t)}</a>' for t in p["tags"])
         prev_p = projects[i - 1] if i > 0 else None
         next_p = projects[i + 1] if i + 1 < len(projects) else None
         pager = ['<div class="pager">']
@@ -812,14 +1312,16 @@ def build(site, groups, projects, mirrors=None):
         pager.append(f'<a style="text-align:right" href="{next_p["url"]}">{esc(next_p["name"])} →</a>' if next_p else "<span></span>")
         pager.append("</div>")
 
-        b = f"""<div class="crumb"><a href="index.html">全部项目</a> / {esc(p['group_label'])}</div>
+        plain = re.sub(r"<[^>]+>", "", p["summary"])
+        b = f"""<div class="crumb"><a href="index.html">全部项目</a> / <a href="index.html#{p['group']}">{esc(p['group_label'])}</a></div>
 <div class="phead">
 <h1>{esc(p['name'])}</h1>
 <div class="sub">{p['pitch']}</div>
-<div>{badge(st, kind)}{' '.join(badge(t, '') for t in p['tags'])}</div>
+<div>{badge(st, kind)}{tags_line}</div>
 <p style="margin-top:1.1em">{esc(p['summary'])}</p>
 <div class="actions">{''.join(actions)}</div>
 <div class="metrics">{metrics}</div>
+{f'<div class="metrics" style="margin-top:10px">{facts_html}</div>' if facts_html else ''}
 </div>
 <h2>技术亮点</h2>
 <ul class="hl">{hls}</ul>
@@ -827,21 +1329,159 @@ def build(site, groups, projects, mirrors=None):
 <h2>技术栈</h2>
 <div class="tech">{techs}</div>
 {''.join(pager)}"""
-        (OUT / f'{p["id"]}.html').write_text(page(site, f'{p["name"]} · {site["name"]}', b), encoding="utf-8")
+        (OUT / f'{p["id"]}.html').write_text(
+            page(site, f'{p["name"]} · {site["name"]}', b,
+                 desc=f'{p["name"]}：{plain[:110]}',
+                 canonical=f'{base}/{p["url"]}',
+                 jsonld=_jsonld_project(site, p),
+                 og_type="article"),
+            encoding="utf-8")
+
+    # ---- 标签索引页 ----
+    # 46 个标签排成一列会让页面长得没边，也不利于找东西。所以：
+    # 顶部给一排锚点跳转（按中文标签的拼音不好排，就按「项目数」排序后的顺序标号），
+    # 正文用两列网格。两列比「折叠分组」好：折叠默认收起等于把内容藏起来，
+    # 而这个页面的唯一价值就是「一眼看全」。
+    groups_html = []
+    jump = []
+    for i, (t, ps) in enumerate(tagmap.items(), 1):
+        sid = slugify(t)
+        items = "".join(f'<li><a href="{p["url"]}">{esc(p["name"])}</a></li>' for p in ps)
+        groups_html.append(
+            f'<div class="indexgroup" id="{sid}"><h2>{esc(t)}'
+            f' <span class="fine">{len(ps)} 个</span></h2><ul>{items}</ul></div>')
+        jump.append(f'<a class="pill" href="#{sid}">{esc(t)} <b>{len(ps)}</b></a>')
+    # 按首字分组做二级索引：中文首字没有简易的字母序，所以按 Unicode 序，
+    # 只是为了「同一类的词挨在一起」，不宣称是拼音序。
+    tag_body = ('<div class="hero"><h1>标签索引</h1>'
+                f'<p class="lead">全部 {len(tagmap)} 个标签，按项目数从多到少。'
+                '每个标签是页内锚点，方便直接分享「这类项目」的入口。</p></div>'
+                f'<div class="filterbar">{"".join(jump)}</div>'
+                f'<div class="cols" style="display:grid;grid-template-columns:1fr 1fr;gap:0 28px">'
+                + "".join(groups_html) + "</div>")
+    (OUT / "tags.html").write_text(
+        page(site, f"标签索引 · {site['name']}", tag_body,
+             desc=f"{site['name']}全部 {len(tagmap)} 个标签，按项目数排序",
+             canonical=base + "/tags.html"), encoding="utf-8")
 
     # ---- 应用商店 ----
     build_store(site, groups, projects, mirrors)
 
-    # 404 兜底（GitHub Pages 会用它）
-    body404 = ('<div class="hero"><h1>页面不存在</h1>'
-               '<p class="lead">链接可能已经变了。回首页看看全部项目。</p>'
-               '<div class="actions"><a class="btn primary" href="index.html">回到首页</a></div></div>')
-    (OUT / "404.html").write_text(page(site, "404 · " + site["name"], body404), encoding="utf-8")
+    # ---- 404 兜底（GitHub Pages 会用它） ----
+    # 之前的 404 只给一个「回首页」按钮。真正会撞上 404 的人是**从旧链接来的**，
+    # 所以要给搜索框：他手里有词（项目名），不该被要求自己一层层点回去。
+    top = "".join(f'<a class="pill" href="{p["url"]}">{esc(p["name"])}</a>'
+                  for p in projects[:6])
+    body404 = f"""<div class="hero">
+<h1>这个地址没有页面</h1>
+<p class="lead">可能是链接写错了，或者项目改过名。搜一下试试，或者从下面挑一个。</p>
+<input id="q" class="searchbox" type="search" placeholder="搜索项目…" autocomplete="off">
+<div id="results"></div>
+<div class="filterbar" style="margin-top:1.2em">{top}</div>
+<div class="actions"><a class="btn primary" href="index.html">回到首页</a>
+<a class="btn" href="store.html">应用商店</a></div>
+</div>"""
+    (OUT / "404.html").write_text(
+        page(site, "404 · " + site["name"], body404, robots="noindex,follow"), encoding="utf-8")
+
+    # ---- icon.svg：手写，不引任何素材 ----
+    (OUT / "icon.svg").write_text(ICON_SVG, encoding="utf-8")
+
+    # ---- sitemap.xml / robots.txt / feed.xml ----
+    write_sitemap(site, projects)
+    write_feed(site, projects[:0], apps)
+    write_robots(site)
 
     # CNAME：GitHub Pages 绑定自定义域名的唯一凭据
     (OUT / "CNAME").write_text(site["domain"] + "\n", encoding="utf-8")
     (OUT / ".nojekyll").write_text("", encoding="utf-8")
     return len(projects), n_apps, total
+
+
+ICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+<rect width="64" height="64" rx="14" fill="#0b0f14"/>
+<g fill="none" stroke="#5ad1ff" stroke-width="3" stroke-linecap="round">
+<path d="M32 12v40M15 22l34 20M49 22L15 42"/>
+<path d="M32 12l-5 5M32 12l5 5M32 52l-5-5M32 52l5-5"/>
+<path d="M15 22l7 1M15 22l1-7M49 42l-7-1M49 42l-1 7"/>
+<path d="M49 22l-1-7M49 22l-7 1M15 42l1 7M15 42l7-1"/>
+</g>
+</svg>
+"""
+
+
+def slugify(text):
+    """锚点用。中文不能直接当 id（URL 里会被转义成一串 %E4%BD%A0），
+    所以中文标签走「tag-<sha1 前 8 位>」——稳定、可复现、短。
+    英文/数字标签保留原样，可读性更好。"""
+    s = re.sub(r"[^a-zA-Z0-9_-]+", "-", text).strip("-").lower()
+    if s:
+        return s
+    return "tag-" + hashlib.sha1(text.encode("utf-8")).hexdigest()[:8]
+
+
+def write_sitemap(site, projects):
+    base = site.get("base_url", "").rstrip("/")
+    pages = [("", "1.0"), ("store.html", "0.9"), ("tags.html", "0.6")]
+    for p in projects:
+        pages.append((p["url"], "0.8"))
+    rows = []
+    for path, pri in pages:
+        rows.append(f"  <url><loc>{base}/{path}</loc><priority>{pri}</priority></url>")
+    (OUT / "sitemap.xml").write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        + "\n".join(rows) + "\n</urlset>\n", encoding="utf-8")
+
+
+def write_robots(site):
+    base = site.get("base_url", "").rstrip("/")
+    (OUT / "robots.txt").write_text(
+        "User-agent: *\nAllow: /\nSitemap: %s/sitemap.xml\n" % base, encoding="utf-8")
+
+
+def write_feed(site, _unused, apps):
+    """RSS 2.0，按 Release 发布时间倒序。
+
+    为什么是「发版」而不是「改文案」：这个站点最有信息量的变化是某个应用
+    出了新版本。文案微调不值得推给任何人——那是把订阅者当垃圾桶。
+    """
+    base = site.get("base_url", "").rstrip("/")
+    items = sorted([p for p in apps if p["published_at"]],
+                   key=lambda x: x["published_at"], reverse=True)
+    rows = []
+    for p in items:
+        title = f"{p['name']} {p['version']}（{p['size_text']}）"
+        link = p["dl_release"]
+        desc = (f"{re.sub(r'<[^>]+>', '', p['pitch'])}｜{p['size_text']}"
+                f"｜要求 Android {p.get('min_android', '—')}+")
+        rows.append(
+            "  <item>\n"
+            f"    <title>{html.escape(title)}</title>\n"
+            f"    <link>{html.escape(link)}</link>\n"
+            f"    <guid isPermaLink=\"false\">{html.escape(p['repo_url'] + '#' + p['version'])}</guid>\n"
+            f"    <pubDate>{rfc822(p['published_at'])}</pubDate>\n"
+            f"    <description>{html.escape(desc)}</description>\n"
+            "  </item>")
+    (OUT / "feed.xml").write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<rss version="2.0"><channel>\n'
+        f"  <title>{html.escape(site['name'])} · 作品更新</title>\n"
+        f"  <link>{base}/</link>\n"
+        f"  <description>{html.escape(site['desc'])}</description>\n"
+        "  <language>zh-CN</language>\n"
+        + "\n".join(rows) + "\n</channel></rss>\n", encoding="utf-8")
+
+
+def rfc822(iso_date):
+    """2026-09-29 → 'Tue, 29 Sep 2026 00:00:00 +0000'。RSS 只认这个格式。"""
+    try:
+        from datetime import datetime, timezone
+        d = datetime.strptime(iso_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        return d.strftime("%a, %d %b %Y %H:%M:%S +0000")
+    except Exception:
+        return iso_date
+
 
 ICONS = {
     "icescribe": "🎙", "modelscopebrowser": "🤖", "kayago": "⚫", "icescan": "📄",

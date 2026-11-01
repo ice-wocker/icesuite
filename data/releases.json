@@ -1,11 +1,11 @@
 {
   "_note": "由 scripts/fetch_releases.py 从 GitHub API 生成，请勿手改。构建时只读本文件，不联网。",
-  "generated_at": "2026-09-30T10:10:10Z",
+  "generated_at": "2026-11-01T12:15:05Z",
   "owner": "ice-wocker",
   "releases": {
     "KayaGo": {
       "asset": "KayaGo-1.2.0.apk",
-      "downloads": 20,
+      "downloads": 83,
       "name": "KayaGo 1.2.0 · 自对弈进化框架",
       "published_at": "2026-09-26",
       "size": 70972,
@@ -13,17 +13,17 @@
       "url": "https://github.com/ice-wocker/KayaGo/releases/download/v1.2.0/KayaGo-1.2.0.apk"
     },
     "ModelScopeBrowser": {
-      "asset": "ModelScope-Models-2.4.1.apk",
-      "downloads": 12,
-      "name": "v2.4.1",
-      "published_at": "2026-09-27",
-      "size": 8156911,
-      "tag": "v2.4.1",
-      "url": "https://github.com/ice-wocker/ModelScopeBrowser/releases/download/v2.4.1/ModelScope-Models-2.4.1.apk"
+      "asset": "ModelScope-Models-2.6.0.apk",
+      "downloads": 2,
+      "name": "v2.6.0",
+      "published_at": "2026-11-01",
+      "size": 8357793,
+      "tag": "v2.6.0",
+      "url": "https://github.com/ice-wocker/ModelScopeBrowser/releases/download/v2.6.0/ModelScope-Models-2.6.0.apk"
     },
     "MusicFusion": {
       "asset": "musicfusion.apk",
-      "downloads": 11,
+      "downloads": 77,
       "name": "v13.0.0 — 聚合音乐播放器（首个 Release）",
       "published_at": "2026-09-29",
       "size": 288715,
@@ -32,7 +32,7 @@
     },
     "MusicFusionAI": {
       "asset": "musicfusion-ai.apk",
-      "downloads": 11,
+      "downloads": 82,
       "name": "v14.0.0 — Add-on 模块（首个可安装的 APK）",
       "published_at": "2026-09-29",
       "size": 41387,
@@ -41,7 +41,7 @@
     },
     "iceBrowser": {
       "asset": "icebrowser.apk",
-      "downloads": 14,
+      "downloads": 117,
       "name": "v5.0.1 — 164 KB 的浏览器",
       "published_at": "2026-09-29",
       "size": 168531,
@@ -50,7 +50,7 @@
     },
     "iceReading": {
       "asset": "icereading.apk",
-      "downloads": 9,
+      "downloads": 69,
       "name": "v1.0.0 — 97 KB 的本地 EPUB 阅读器",
       "published_at": "2026-09-29",
       "size": 100085,
@@ -59,7 +59,7 @@
     },
     "iceScan": {
       "asset": "iceScan-0.1.0.apk",
-      "downloads": 15,
+      "downloads": 74,
       "name": "v0.1.0",
       "published_at": "2026-09-28",
       "size": 71620,
@@ -68,7 +68,7 @@
     },
     "iceScribe": {
       "asset": "iceScribe-0.1.1.apk",
-      "downloads": 13,
+      "downloads": 113,
       "name": "v0.1.1",
       "published_at": "2026-09-27",
       "size": 61130620,

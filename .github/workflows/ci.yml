@@ -22,17 +22,38 @@ jobs:
         run: python3 scripts/build_site.py
       - name: Assert output
         run: |
-          test -f site/index.html
-          test -f site/store.html
-          test -f site/search.json
-          test -f site/CNAME
+          # 产物清单写全：少一个文件在浏览器里就是 404，而构建本身是绿的。
+          for f in index.html store.html tags.html search.json CNAME 404.html \
+                   sitemap.xml robots.txt feed.xml icon.svg style.css; do
+            test -f "site/$f" || { echo "缺少产物 $f"; exit 1; }
+          done
           pages=$(find site -name '*.html' | wc -l)
-          test "$pages" -ge 13
+          test "$pages" -ge 14
           echo "页面数 $pages"
           # 商店页必须真的有可下载的应用，不能是空壳
           n=$(grep -o 'data-apk="' site/store.html | wc -l)
           test "$n" -ge 8
           echo "商店页可下载 $n 个"
+          # sitemap 必须收录**所有可能被索引的页面**：项目页 + 首页 + 商店 + 标签。
+          # 不能拿 `页面数` 直接比——404.html 是 noindex 页面，本就不该进 sitemap，
+          # 差这一个才是对的。上一版这条断言写成 `sm >= pages`，于是它必然失败，
+          # 而且失败信息只会说「Process completed with exit code 1」，看不出是这条。
+          sm=$(grep -c '<url>' site/sitemap.xml)
+          want=$((pages))          # 页面数（含 404）
+          test "$sm" -ge $((want - 1)) || { echo "sitemap 只有 $sm 条，页面 $want 张（404 不计入）"; exit 1; }
+          grep -q '404.html' site/sitemap.xml && { echo "404.html 不该进 sitemap"; exit 1; }
+          echo "sitemap 条目 $sm（页面 $want，404 不计入）"
+      - name: 构建应可重复（同一份输入产出同一份产物）
+        run: |
+          # 纯静态站的「可重复构建」是它自己的承诺之一。
+          # 做法：再构建一次，比对两次产物的哈希——如果构建里混进了
+          # 时间戳/随机数，这里立刻红。
+          h1=$(find site -type f | sort | xargs sha256sum | sha256sum)
+          python3 scripts/build_site.py > /dev/null
+          h2=$(find site -type f | sort | xargs sha256sum | sha256sum)
+          echo "第一次 $h1"
+          echo "第二次 $h2"
+          test "$h1" = "$h2" || { echo "构建不可重复：两次产物不一致"; exit 1; }
 
   check:
     name: 结构与站内链接检查
