@@ -21,6 +21,7 @@
 ## 清单
 
 ```bash
+<<<<<<< HEAD
 python3 scripts/check_site.py                  # 完整检查（含外链 HEAD）
 python3 scripts/check_site.py --skip-links     # 只查本地结构与一致性（PR 上用）
 python3 scripts/check_site.py --reproducible   # 再加一条：再构建一次，逐字节比对
@@ -28,6 +29,11 @@ python3 scripts/check_site.py --no-js           # 没有 node 的机器上跳过
 python3 scripts/js_syntax.py                    # 单独跑内联 JS 语法检查
 python3 scripts/sync.py --check                 # 快照是否过期（联网）
 python3 scripts/live_check.py                   # 核对线上那份（联网）
+=======
+python3 scripts/check_site.py                # 完整检查（含外链 HEAD）
+python3 scripts/check_site.py --skip-links   # 只查本地结构与一致性（PR 上用）
+python3 scripts/sync.py --check               # 快照是否过期（联网）
+>>>>>>> f5839e68205838e0d618905335f067bec3fd5355
 ```
 
 ## 七类守卫，以及每条真的会怎么红
@@ -97,6 +103,7 @@ python3 scripts/live_check.py                   # 核对线上那份（联网）
 | 文案里「每批 N 个」必须等于代码里的 `MAX_PARALLEL` | 改了常量忘改文案 |
 | 提到「多线程下载」必须同时出现「实测不成立」 | 把已否掉的做法当卖点讲 |
 
+<<<<<<< HEAD
 ## v3 新增的守卫（十一条，全部走过变异自证）
 
 这一版多了五张页面、三个机器可读产物、一套 PWA。新东西越多，
@@ -147,11 +154,21 @@ guards       mutate_test.py（15 条）+ mutate_v2.py（29 条）+ 反向自检
 releases     sync.py --check（快照是否与线上一致）
 live         线上核对：产物指纹 + update.json + 抽样 APK 实算 sha256
 pages-config 断言域名在 data/ 里只出现一次，且 CNAME 与之相同
+=======
+## CI 里跑什么
+
+```text
+build     构建 → 断言产物清单 → 断言页面数/sitemap 条目 → 再构建一次比对哈希
+check     构建 → check_site.py --skip-links（PR）/ 完整检查（每周定时）
+releases  构建 → sync.py --check（快照是否与线上一致）
+pages-config  断言域名在 data/ 里只出现一次，且 CNAME 与之相同
+>>>>>>> f5839e68205838e0d618905335f067bec3fd5355
 ```
 
 「再构建一次比对哈希」这条值得单说：纯静态站的承诺之一是可重复构建。
 如果哪天有人在渲染里混进 `time.time()`，这条会立刻红——而不是等到某天
 「同一个 commit 在两个 CI 上跑出不同结果」时才开始怀疑人生。
+<<<<<<< HEAD
 本版它真的抓到过一次：`update.json` 的 `generated_at` 一度写成构建时刻。
 
 ### 反向自检：守卫链不能一起哑掉
@@ -162,17 +179,24 @@ pages-config 断言域名在 data/ 里只出现一次，且 CNAME 与之相同
 理由：变异测试的判定方式是「注入缺陷 → 跑 check_site → 期望非零」。
 如果哪天 `check_site.py` 变成永远返回 0，两份变异测试会一起变成「全部自证通过」。
 那是双重失效，而且表面上全绿。
+=======
+>>>>>>> f5839e68205838e0d618905335f067bec3fd5355
 
 ## 变异测试：守卫的自证
 
 ```bash
 python3 scripts/build_site.py
 python3 scripts/mutate_test.py     # 注入 15 种缺陷，逐条确认自检会红
+<<<<<<< HEAD
 python3 scripts/mutate_v2.py       # 注入 29 种缺陷（新产物 / 新页面 / PWA）
 ```
 
 分成两份而不是合成一份，是为了在 CI 日志里一眼看出**红的是老守卫还是新守卫**。
 
+=======
+```
+
+>>>>>>> f5839e68205838e0d618905335f067bec3fd5355
 `mutate_test.py` 把产物复制一份，注入缺陷（删页面、改版本号、删校验值区块、
 把卡片改回整块 `<a>`、CSS 少一个大括号、把主题脚本挪到样式表之后……），
 然后跑 `check_site.py`，**要求它变红**。没红就 fail，并打印是哪一条守卫失效了。

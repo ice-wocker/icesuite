@@ -42,15 +42,23 @@ jobs:
       - name: Assert output
         run: |
           for f in index.html store.html tags.html search.json update.json CNAME 404.html \
+<<<<<<< HEAD
                    sitemap.xml robots.txt feed.xml icon.svg style.css \
                    latest.html timeline.html compare.html collections.html stats.html \
                    stats.json graph.json content.json manifest.json sw.js icon-maskable.svg; do
+=======
+                   sitemap.xml robots.txt feed.xml icon.svg style.css; do
+>>>>>>> f5839e68205838e0d618905335f067bec3fd5355
             test -f "site/$f" || { echo "缺少产物 $f"; exit 1; }
           done
           grep -q 'icesuite.eu.org' site/CNAME
           pages=$(find site -name '*.html' | wc -l)
           echo "生成 HTML 页面数: $pages"
+<<<<<<< HEAD
           test "$pages" -ge 20
+=======
+          test "$pages" -ge 14
+>>>>>>> f5839e68205838e0d618905335f067bec3fd5355
           # 守卫不能写死「>= 8 个应用」：应用数量由 registry.json 决定，
           # 写死数字的话，删掉一半应用构建照样绿。改成「与快照一致」。
           n=$(grep -o 'data-apk="' site/store.html | wc -l)
@@ -58,6 +66,7 @@ jobs:
           echo "商店页可下载: $n（快照里 $want）"
           test "$n" -eq "$want" || { echo "商店页可下载数与快照不一致"; exit 1; }
           test "$n" -ge 1
+<<<<<<< HEAD
       # 发布前再跑一次自检：宁可不上线，也不让坏产物出去。
       # 带上 --reproducible：发布这一份必须能由同一份输入重新产出，
       # 否则「线上就是仓库里那一份」这句话没法验证。
@@ -65,6 +74,11 @@ jobs:
         run: python3 scripts/check_site.py --reproducible
       - name: Guards must be able to fail
         run: python3 scripts/mutate_v2.py
+=======
+      # 发布前再跑一次自检：宁可不上线，也不让坏产物出去
+      - name: Self check
+        run: python3 scripts/check_site.py
+>>>>>>> f5839e68205838e0d618905335f067bec3fd5355
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
         with:
