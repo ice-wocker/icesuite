@@ -24,6 +24,10 @@ SITE_DIR = ROOT / "site"
 UA = {"User-Agent": "ice-suite-link-check/1.0"}
 
 
+def esc_title(t):
+    return re.sub(r"\s+", " ", t).strip()
+
+
 def load_registry():
     """读 sync.py 生成的快照。缺失时返回空字典，让「新增快照」这类检查报错。"""
     f = ROOT / "data" / "registry.json"
@@ -33,13 +37,17 @@ def load_registry():
 
 
 def project_meta():
-    """从构建脚本里拿「站点认为有哪些项目」。不重复实现合并逻辑。"""
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("build_site", ROOT / "scripts" / "build_site.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    _, _, projects, _ = mod.load()
-    return projects
+    """「站点认为有哪些项目」。
+
+    以前这里通过 importlib 执行整个 build_site.py、只为了拿一个 list ——
+    为了核对渲染结果而把渲染器整份跑一遍，代价是自检变慢、而且合并逻辑
+    依旧有两份（一份在 build 里、一份在它对 load 的调用里）。
+    现在合并规则只有一个入口：overlay.load()。build 和 check 都调它。
+    """
+    import sys
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import overlay
+    return overlay.load()["projects"]
 
 
 def flat_releases(registry):
@@ -88,6 +96,10 @@ def head(url, timeout=20, retries=2):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--skip-links", action="store_true", help="只做本地结构检查")
+    ap.add_argument("--no-js", action="store_true",
+                    help="跳过内联 JS 语法检查（没有 node 的机器用）")
+    ap.add_argument("--reproducible", action="store_true",
+                    help="额外跑一次构建，逐字节比对产物是否可复现（慢）")
     args = ap.parse_args()
 
     ns = {}
@@ -104,7 +116,11 @@ def main():
 
     # --- 1. 产物结构 ---
     for f in ("index.html", "style.css", "search.json", "CNAME", "404.html", "store.html",
-              "tags.html", "sitemap.xml", "robots.txt", "feed.xml", "icon.svg"):
+              "tags.html", "sitemap.xml", "robots.txt", "feed.xml", "icon.svg",
+              # v3 新增：五张页面 + 三个机器可读产物 + PWA 三件套
+              "latest.html", "timeline.html", "compare.html", "collections.html", "stats.html",
+              "stats.json", "graph.json", "content.json", "manifest.json", "sw.js",
+              "icon-maskable.svg"):
         if not (SITE_DIR / f).exists():
             errors.append(f"缺少产物 {f}")
     if (SITE_DIR / "CNAME").exists():
@@ -562,6 +578,254 @@ def main():
             rel = releases.get(repo) or {}
             if app.get("version") != rel.get("tag"):
                 errors.append(f"update.json 里 {repo} 版本 {app.get('version')} != 快照 {rel.get('tag')}")
+        # verify 是「这份清单有多少条能被验证」的自述。它必须与 apps 实际内容对得上，
+        # 否则客户端会拿一个骗人的覆盖率去做「要不要提示校验失败」的判断。
+        v = up.get("verify") or {}
+        real_sha = sum(1 for a in up.get("apps", {}).values() if a.get("sha256"))
+        real_size = sum(1 for a in up.get("apps", {}).values() if a.get("size"))
+        if v.get("sha256_covered") != real_sha:
+            errors.append(f"update.json 的 verify.sha256_covered = {v.get('sha256_covered')}"
+                          f"，实际有 {real_sha} 条 sha256")
+        if v.get("size_covered") != real_size:
+            errors.append(f"update.json 的 verify.size_covered = {v.get('size_covered')}"
+                          f"，实际有 {real_size} 条 size")
+        # generated_at 必须是快照时间，不是构建时间 —— 否则页面会在快照已过期时
+        # 依然显示「刚刚更新过」，而这条正是「同一件事故的第二次」的成因。
+        import overlay as _ov
+        snap = (_ov.registry_meta() or {}).get("generated_at") or ""
+        if snap and up.get("generated_at") != snap:
+            errors.append(f"update.json 的 generated_at {up.get('generated_at')!r} "
+                          f"不是快照时间 {snap!r}（构建时间不该进产物）")
+
+    # --- 3.20 v3：机器可读产物必须与模型一致 ---
+    # 「有产物但内容是旧的」是这类改造最典型的半成品状态：文件在、HTTP 200、
+    # 自检也发现不了 —— 除非有人真的把里面的数字和快照对一遍。
+    stats_f = SITE_DIR / "stats.json"
+    graph_f = SITE_DIR / "graph.json"
+    content_f = SITE_DIR / "content.json"
+    if stats_f.exists():
+        st = json.loads(stats_f.read_text(encoding="utf-8"))
+        want = {
+            "projects": len(projects),
+            "installable": sum(1 for p in projects if p["installable"]),
+            "release_bytes": sum(p["size_bytes"] for p in projects if p["installable"]),
+            "releases": sum(len([r for r in (p.get("history") or []) if r.get("tag")])
+                            for p in projects),
+        }
+        for k, v in want.items():
+            if st.get("totals", {}).get(k) != v:
+                errors.append(f"stats.json 的 totals.{k} = {st.get('totals', {}).get(k)}，"
+                              f"按快照应为 {v}")
+        by_month = st.get("by_month") or {}
+        if by_month and sum(by_month.values()) != want["releases"]:
+            errors.append(f"stats.json by_month 合计 {sum(by_month.values())} "
+                          f"!= Release 总数 {want['releases']}（月份分桶漏了版本）")
+        sizes = st.get("sizes") or []
+        if sizes != sorted(sizes, key=lambda x: x["size"]):
+            errors.append("stats.json 的 sizes 没有按体积升序（页面写的是「从小到大」）")
+        # 页面必须真的把数字渲染出来，不能只是 JSON 对
+        sf = (SITE_DIR / "stats.html").read_text(encoding="utf-8")
+        for label, val in (("个仓库", want["projects"]),
+                           ("个可安装", want["installable"]),
+                           ("个版本", want["releases"])):
+            if f"<b>{val}</b>{label}" not in sf:
+                errors.append(f"stats.html 没有渲染 <b>{val}</b>{label}"
+                              "（stats.json 有，页面没显示）")
+    if graph_f.exists():
+        g = json.loads(graph_f.read_text(encoding="utf-8"))
+        ids = {p["id"] for p in projects}
+        gn = {n["id"] for n in g.get("nodes", [])}
+        if gn != ids:
+            errors.append(f"graph.json 节点集合与项目清单不一致：{sorted(gn ^ ids)}")
+        for e in g.get("edges", []):
+            if e["a"] not in ids or e["b"] not in ids:
+                errors.append(f"graph.json 有悬空边 {e['a']} — {e['b']}")
+            if e["kind"] == "tag" and not e.get("tags"):
+                errors.append(f"graph.json 的 tag 边 {e['a']}—{e['b']} 没有任何共享标签")
+    if content_f.exists():
+        c = json.loads(content_f.read_text(encoding="utf-8"))
+        files = c.get("files") or {}
+        # 逐文件核对 sha256：这是「同一 commit 同一产物」这句话唯一的证据。
+        # 只查「文件数一致」是橡皮图章 —— 内容改了、数量没变，照样全绿。
+        import hashlib as _hl
+        for name, meta in files.items():
+            fp = SITE_DIR / name
+            if not fp.exists():
+                errors.append(f"content.json 里登记了 {name}，但产物里没有")
+                continue
+            raw = fp.read_bytes()
+            if len(raw) != meta.get("bytes"):
+                errors.append(f"content.json 里 {name} 的 bytes 与实际不符")
+            elif _hl.sha256(raw).hexdigest() != meta.get("sha256"):
+                errors.append(f"content.json 里 {name} 的 sha256 与实际不符")
+        on_disk = {str(f.relative_to(SITE_DIR)) for f in SITE_DIR.rglob("*")
+                   if f.is_file() and f.name != "content.json"}
+        missing = on_disk - set(files)
+        if missing:
+            errors.append(f"产物里有 {len(missing)} 个文件没进 content.json："
+                          f"{sorted(missing)[:4]}")
+        if c.get("build", {}).get("files") != len(files):
+            errors.append("content.json 的 build.files 与实际文件数不符")
+
+    # --- 3.21 v3：PWA 三件套必须自洽 ---
+    man_f = SITE_DIR / "manifest.json"
+    if man_f.exists():
+        man = json.loads(man_f.read_text(encoding="utf-8"))
+        for key in ("name", "short_name", "start_url", "scope", "display", "icons"):
+            if not man.get(key):
+                errors.append(f"manifest.json 缺少 {key}")
+        if man.get("display") != "standalone":
+            errors.append("manifest.json 的 display 不是 standalone（装出来是浏览器标签）")
+        if man.get("start_url") not in ("./index.html", "./"):
+            errors.append(f"manifest.json 的 start_url {man.get('start_url')!r} 不是相对路径，"
+                          "fork 到子路径会 404")
+        for ic in man.get("icons") or []:
+            if not (SITE_DIR / ic["src"]).exists():
+                errors.append(f"manifest.json 引用的图标 {ic['src']} 不存在")
+        for sc in man.get("shortcuts") or []:
+            if not (SITE_DIR / sc["url"]).exists():
+                errors.append(f"manifest.json 的快捷方式指向不存在的页面 {sc['url']}")
+    sw_f = SITE_DIR / "sw.js"
+    if sw_f.exists():
+        sw = sw_f.read_text(encoding="utf-8")
+        m = re.search(r"const PRECACHE = (\[[^\]]*\])", sw)
+        if not m:
+            errors.append("sw.js 里找不到 PRECACHE 清单")
+        else:
+            try:
+                pre = json.loads(m.group(1))
+            except Exception:
+                pre = []
+                errors.append("sw.js 的 PRECACHE 不是合法 JSON")
+            if not pre:
+                errors.append("sw.js 的 PRECACHE 是空的（装上也不会有离线能力）")
+            for u in pre:
+                name = u[2:] if u.startswith("./") else u
+                if not (SITE_DIR / name).exists():
+                    errors.append(f"sw.js 预缓存了不存在的文件 {u}")
+            if "__CACHE_NAME__" in sw:
+                errors.append("sw.js 里的缓存名占位符没有被替换（所有版本共用一个缓存）")
+        # 版本化缓存名必须跟着内容变：拿 manifest 里的 x-version 对
+        if man_f.exists():
+            tag = json.loads(man_f.read_text(encoding="utf-8")).get("x-version") or ""
+            if tag and f"icesuite-{tag}" not in sw and "icesuite-" not in sw:
+                errors.append("sw.js 的缓存名里没有构建版本号")
+
+    # --- 3.22 v3：新页面不能是空壳 ---
+    # 「页面生成了」和「页面上有内容」是两件事。一张只有标题的 latest.html
+    # 会让构建与自检双双通过，而用户点开看到的是空白。
+    tl_len = sum(1 for p in projects for r in (p.get("history") or []) if r.get("tag"))
+    page_expect = [
+        ("latest.html", max(1, min(tl_len, 10)), '<ul class="latestlist">'),
+        ("timeline.html", max(1, len({(p.get("history") or [{}])[0].get("published_at", "")[:4]
+                                      for p in projects if p.get("history")}) - 0), '<h2 id="y-'),
+        ("collections.html", 1, '<section class="group"'),
+        ("stats.html", 1, '<div class="bars">'),
+        ("compare.html", 1, '<table class="cmp">'),
+    ]
+    for fname, at_least, marker in page_expect:
+        fp = SITE_DIR / fname
+        if not fp.exists():
+            continue
+        body_f = fp.read_text(encoding="utf-8")
+        if marker not in body_f:
+            errors.append(f"{fname} 缺少结构标记 {marker}（页面生成了但内容没渲染）")
+        n_items = body_f.count(marker)
+        if n_items < at_least:
+            errors.append(f"{fname} 里 {marker} 只出现 {n_items} 次，按快照应有至少 {at_least} 次")
+    # collections 的每个集合都必须有卡片，不能只有标题
+    coll_f = SITE_DIR / "collections.html"
+    if coll_f.exists():
+        coll = coll_f.read_text(encoding="utf-8")
+        # 按集合切段再数卡片：只数全站总数是橡皮图章 —— 把一个集合的卡片
+        # 全删掉、另一个集合多渲染几张，总数照样对得上。变异测试抓到的。
+        for chunk in coll.split('<section class="group"')[1:]:
+            # 变量名不要叫 head：本文件里 head() 是那个 HEAD 请求函数，
+            # 覆盖掉它会让后面所有外链检查在运行时炸掉（真的炸过一次）。
+            head_html = chunk.split("</h2>")[0]
+            title = re.sub(r"<[^>]+>", "", head_html)[:24] or "(无标题)"
+            n_card = chunk.count('class="cardhit"')
+            if n_card == 0:
+                errors.append(f"collections.html 里「{esc_title(title)}」这个集合一张卡片都没有"
+                              "（渲染成了空壳）")
+
+    # 详情页的体检测试：每张项目页都要有，且「注意/正常」至少各一档出现过
+    detail_files = [SITE_DIR / f'{p["id"]}.html' for p in projects]
+    detail_files = [f for f in detail_files if f.exists()]
+    if detail_files:
+        bodies = {f.name: f.read_text(encoding="utf-8") for f in detail_files}
+        no_health = [n for n, b in bodies.items() if "<h2>体检</h2>" not in b]
+        if no_health:
+            errors.append(f"{len(no_health)} 张项目页没有「体检」区块：{no_health[:3]}")
+        all_detail = "".join(bodies.values())
+        if 'class="badge ok"' not in all_detail:
+            errors.append("项目页里没有任何「正常」档的体检结论（判定逻辑可能恒为告警）")
+        # 逐页核对「相关项目」，而不是看全站有没有出现过这个词 ——
+        # 一条只查「全站某处有 X」的断言，删掉 21 张页面里的 20 张照样绿。
+        # 这条是变异测试抓出来的：把 gunfire.html 的区块整段删掉，守卫当时没反应。
+        for f in detail_files:
+            body_f = bodies[f.name]
+            if 'class="relgrid"' not in body_f:
+                errors.append(f"{f.name} 没有「相关项目」区块（.relgrid）")
+                break
+        no_health_body = [n for n, b in bodies.items() if "<h2>体检</h2>" not in b]
+        if not no_health_body and 'class="badge warn"' not in all_detail:
+            errors.append("项目页里没有任何「注意」档的体检结论（判定逻辑可能恒为正常）")
+
+    # 首页入口必须指向真实存在的页面（六个入口卡片）
+    idx_body = (SITE_DIR / "index.html").read_text(encoding="utf-8")
+    if 'class="entrygrid"' not in idx_body:
+        errors.append("首页缺少新页面入口区块（entrygrid）")
+    # 只看 entrygrid 这一段：页脚里也有同名链接，用全文搜索的话
+    # 「首页入口被删」根本抓不到（页脚那份还在）。
+    eg = re.search(r'<div class="entrygrid">(.*?)</div>\s*<div class="filterbar"|'
+                   r'<div class="entrygrid">(.*?)</div>\s*<details', idx_body, re.S)
+    eg_html = (eg.group(1) or eg.group(2)) if eg else ""
+    if not eg_html:
+        errors.append("首页 entrygrid 区块解析不出来（结构变了？）")
+    for target in ("latest.html", "timeline.html", "compare.html", "collections.html",
+                   "stats.html"):
+        if f'href="{target}"' not in eg_html:
+            errors.append(f"首页入口区块里没有指向 {target} 的链接")
+
+    # --- 3.23 「同一 commit 同一产物」必须真的成立 ---
+    # 这条守卫的由来：content.json 里一度写着构建时间，于是同样的输入
+    # 两次构建得到不同文件，而「构建成功」把它盖住了。可复现是承诺，
+    # 承诺要么能被检验，要么不算承诺。做法是再构建一次到临时目录，逐字节比。
+    # （用 --reproducible 才跑：它要跑一次完整构建，常规自检不必付这个代价。）
+    if args.reproducible:
+        import shutil as _sh
+        import subprocess as _sp
+        import tempfile as _tf
+        tmp = Path(_tf.mkdtemp()) / "site2"
+        r = _sp.run([sys.executable, str(ROOT / "scripts" / "build_site.py"), "--out", str(tmp)],
+                    capture_output=True, text=True, cwd=ROOT)
+        if r.returncode != 0:
+            errors.append("第二次构建失败：" + (r.stdout + r.stderr)[-400:])
+        else:
+            a = {str(f.relative_to(SITE_DIR)): f.read_bytes()
+                 for f in SITE_DIR.rglob("*") if f.is_file()}
+            b = {str(f.relative_to(tmp)): f.read_bytes()
+                 for f in tmp.rglob("*") if f.is_file()}
+            if set(a) != set(b):
+                errors.append(f"两次构建产物文件集合不同：{sorted(set(a) ^ set(b))[:5]}")
+            else:
+                diff = [k for k in a if a[k] != b[k]]
+                if diff:
+                    errors.append(f"{len(diff)} 个文件两次构建不一致（产物不可复现）："
+                                  f"{diff[:5]}")
+        _sh.rmtree(tmp.parent, ignore_errors=True)
+
+    # --- 3.24 内联 JavaScript 必须能解析 ---
+    # 这一条挡住的是「构建全绿、页面 200、输入框能打字但永远没结果」那类故障。
+    # 它只能在真的执行 JS 的环境里被发现，所以交给 node --check。
+    if not args.no_js:
+        import subprocess as _sp
+        r = _sp.run([sys.executable, str(ROOT / "scripts" / "js_syntax.py")],
+                    capture_output=True, text=True)
+        if r.returncode != 0:
+            errors.append((r.stdout + r.stderr).strip().splitlines()[-1] if r.stdout.strip()
+                          else "内联 JS 语法检查失败")
 
     # --- 4. 外链可达性 ---
     checked = 0
@@ -588,6 +852,15 @@ def main():
     idx = json.loads((SITE_DIR / "search.json").read_text(encoding="utf-8"))
     if len(idx) != len(projects):
         errors.append(f"search.json 条目数 {len(idx)} != 项目数 {len(projects)}")
+    # 搜索索引里每一条都必须指向真实存在的页面，否则搜索结果就是一个 404
+    for row in idx:
+        if not (SITE_DIR / row.get("url", "")).exists():
+            errors.append(f"search.json 指向不存在的页面 {row.get('url')}")
+            break
+    # 关键词抽查：索引里确实收录了标签与亮点文本。
+    # 「只收标题」的搜索看似能用，实际问题（比如搜「断点续传」）会零结果。
+    if idx and not any(row.get("text", "").strip() for row in idx):
+        errors.append("search.json 的 text 字段全空（搜索只能命中标题）")
 
     print(f"项目数：{len(projects)}")
     print(f"可安装应用：{len(releases)}")

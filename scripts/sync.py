@@ -30,7 +30,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "data" / "registry.json"
 API = "https://api.github.com"
-SCHEMA = 3
+SCHEMA = 4
 
 # 账号下不是「作品」的仓库：主页仓库、组织级社区健康文件仓库。
 # 这是唯一还需要人写一句的地方 —— 因为「这个仓库算不算作品」没有机器可判的答案。
@@ -154,6 +154,9 @@ def normalise(owner, repo, releases, token):
         latest = dict(rels[0], asset=None)
 
     homepage = PAGES_OVERRIDES.get(name) or (repo.get("homepage") or "").strip() or ""
+    # 仓库的 GitHub Pages 地址：GitHub 只在真的开了 Pages 时才给这个字段，
+    # 所以它是「有没有线上站」的证据，而不是从技术栈猜出来的。
+    pages = repo.get("has_pages") or False
     return {
         "repo": name,
         "description": (repo.get("description") or "").strip(),
@@ -169,6 +172,15 @@ def normalise(owner, repo, releases, token):
         "repo_url": repo["html_url"],
         "size_kb": repo.get("size") or 0,
         "has_license": bool(repo.get("license")),
+        "has_pages": bool(pages),
+        "counts": {
+            # 三个计数都来自同一次仓库详情调用，不额外发请求。
+            # 它们是「这个项目有多重」的另一种口径：星标是外部反应，
+            # open issue 是自报的欠账，发版次数是迭代密度。
+            "open_issues": repo.get("open_issues_count") or 0,
+            "releases": len(rels),
+            "assets": sum(len(r.get("assets") or []) for r in rels),
+        },
         "kind": kind,
         "latest": latest,
         "releases": rels,

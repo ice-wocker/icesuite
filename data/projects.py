@@ -55,6 +55,44 @@ GROUPS = [
 
 PROJECTS = [
     # ---------------- 端侧 AI ----------------
+    # 自动收录的仓库也可以用同样的结构补一段人工文案：
+    # 只写机器查不到的（pitch / highlights / known_limits），
+    # 版本号、体积、sha256 一个字都不要抄 —— 那些由 registry.json 决定，
+    # 抄一遍就是给下一次「页面过期」埋一个伏笔。
+    {
+        "id": "npu-chat",
+        "repo": "npu-chat",
+        "name": "npu-chat",
+        "group": "on-device-ai",
+        "pitch": "135M int4 模型塞进包里，<b>清单里没有 INTERNET 权限</b>",
+        "summary": "交付时就说清楚的三件事：CPU 后端完整可用；GPU 后端一行代码都没有；"
+                   "NPU 只到探测与降级，跑不了图。状态条如实写「未加速，走参考实现」，"
+                   "不冒充。这份坦白本身就是这个项目最值得看的部分。",
+        "tags": ["离线", "端侧推理", "int4", "骁龙"],
+        "tech": ["Java", "C++", "NDK"],
+        "metrics": [("内置权重", "int4 / 88 MB"), ("参考后端", "CPU（arm64）")],
+        "platform": "android",
+        "min_android": "8.0",
+        "arch": "arm64-v8a",
+        "status": "beta",
+        "known_limits": [
+            "GPU 后端没有实现 —— 不是「做得不好」，是没有写。原代码里搜 gpu/OpenCL/Vulkan 零命中。",
+            "NPU 图执行未接通：探测、降级、状态上报都通了，deviceSession 仍是 nullptr，"
+            "真跑图要厂商 NDK + 真机联调。",
+            "没有真机回归。带宽模型是推的、后端降级是纸上的，参数是算的不是测的。",
+        ],
+        "highlights": [
+            ("数值层的三个真 bug", "QKV bias 被静默丢弃（config.json 里没这个键、权重里有 72 个 bias 张量）；"
+                                  "int4 scale 分组用错下标（第二行起全部错位）；vocab 少 272 行 padding 导致 id 整体偏移。"),
+            ("为什么是 135M 不是 0.5B", "手机上的 matvec 是内存带宽瓶颈，体积直接等于速度。"
+                                        "8 GB/s 有效带宽下 0.5B 约 3 tok/s，135M 约 12 tok/s。"),
+            ("int4 打包与 NumPy 对拍", "C++ 前向用宿主 g++ 编出来，与 NumPy 参考实现逐位比："
+                                      "argmax 相同、logits 误差 1e-5。scale 错位就是这一步抓到的。"),
+        ],
+        "installation": "下载即装。模型在包里，装完不联网也能用；"
+                        "首次启动会解包权重，占约 90 MB 存储空间。",
+        "store_note": "包体 94 MB 里几乎全是模型权重，代码本身很小。",
+    },
     {
         "id": "icescribe",
         "repo": "iceScribe",

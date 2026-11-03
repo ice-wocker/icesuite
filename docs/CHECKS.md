@@ -21,9 +21,13 @@
 ## 清单
 
 ```bash
-python3 scripts/check_site.py                # 完整检查（含外链 HEAD）
-python3 scripts/check_site.py --skip-links   # 只查本地结构与一致性（PR 上用）
-python3 scripts/sync.py --check               # 快照是否过期（联网）
+python3 scripts/check_site.py                  # 完整检查（含外链 HEAD）
+python3 scripts/check_site.py --skip-links     # 只查本地结构与一致性（PR 上用）
+python3 scripts/check_site.py --reproducible   # 再加一条：再构建一次，逐字节比对
+python3 scripts/check_site.py --no-js           # 没有 node 的机器上跳过内联 JS 检查
+python3 scripts/js_syntax.py                    # 单独跑内联 JS 语法检查
+python3 scripts/sync.py --check                 # 快照是否过期（联网）
+python3 scripts/live_check.py                   # 核对线上那份（联网）
 ```
 
 ## 七类守卫，以及每条真的会怎么红
@@ -93,25 +97,81 @@ python3 scripts/sync.py --check               # 快照是否过期（联网）
 | 文案里「每批 N 个」必须等于代码里的 `MAX_PARALLEL` | 改了常量忘改文案 |
 | 提到「多线程下载」必须同时出现「实测不成立」 | 把已否掉的做法当卖点讲 |
 
+## v3 新增的守卫（十一条，全部走过变异自证）
+
+这一版多了五张页面、三个机器可读产物、一套 PWA。新东西越多，
+「文件生成了但内容是空的」这类半成品的可能面就越大，所以每条新结构都配了断言。
+
+| 断言 | 它挡的具体故障 |
+|---|---|
+| `content.json` 逐文件 sha256 | 文件在、HTTP 200、内容却和索引对不上（构建半路被改过） |
+| 产物里没有未登记文件 | 有人往 `site/` 里塞了一个文件，`content.json` 却不知道它 |
+| `stats.json` 的 `totals` 与快照一致 | 统计逻辑改坏了，页面和 JSON 一起错 |
+| `by_month` 合计 == Release 总数 | 月份分桶漏了没有日期的版本 |
+| `sizes` 必须升序 | 页面写着「从小到大」，数据却是乱的 |
+| 数据页真的渲染出数字 | JSON 对了、HTML 里没有（`<b>22</b>个仓库` 逐个核） |
+| `graph.json` 节点集合 == 项目清单 | 少一个节点、或多出一个已删除的项目 |
+| 无悬空边 / 无空标签边 | 图里出现指向不存在项目的边 |
+| `manifest.json` 的 `start_url` 是相对路径 | fork 到 `/<repo>/` 下装出来直接 404 |
+| `sw.js` 的 PRECACHE 每项都存在 | 预缓存了一个不存在的文件，装上就缺页 |
+| **内联 JS 能通过 `node --check`** | 见下，这条是本版唯一靠"真的执行"才发现的 |
+
+### 那条 JS 语法检查的由来
+
+本版在浏览器里点开搜索框敲了三个字，才发现**输入框能打字、但永远没有结果**。
+
+根因是搜索脚本里一个字符类正则：`/[.*+?^${}()|[\]\\]/g`。
+`SEARCH_JS` 当时是普通三引号字符串，Python 先把 `\\` 折成 `\`，
+于是 JS 收到 `/[.*+?^${}()|[\]\]/g` —— 字符类被提前闭合，**整段脚本解析失败**。
+
+那个状态下：构建全绿、自检全绿（当时还没有这条断言）、HTTP 200、
+页面外观完全正常、输入框能获得焦点、能打字。只有真敲字才看得见。
+
+这就是「静默失效」的教科书形状。所以现在有一条只能靠**执行**来验的断言：
+把每张页面里的内联 `<script>` 抽出来交给 `node --check`。
+CI 的 runner 自带 node；本机没有 node 时它会**明确说跳过**，而不是静默通过。
+
+### 另外两条只能"跑"才发现的
+
+- **表头排序点不动**：脚本被塞在 `<head>` 里，`querySelectorAll` 执行时 DOM 还不存在。
+  静态检查只查了 `data-sort` 属性在不在，所以全绿。
+- **对比表在 390px 上横向溢出**：`table-layout:auto` 按内容分配宽度，
+  一列长日期就能把项目名挤出屏幕。改成 `fixed` + 列宽算死，溢出与否变成可算的。
+
 ## CI 里跑什么
 
 ```text
-build     构建 → 断言产物清单 → 断言页面数/sitemap 条目 → 再构建一次比对哈希
-check     构建 → check_site.py --skip-links（PR）/ 完整检查（每周定时）
-releases  构建 → sync.py --check（快照是否与线上一致）
-pages-config  断言域名在 data/ 里只出现一次，且 CNAME 与之相同
+build        产物清单 → 页面数/sitemap 条目 → check_site --reproducible
+check        check_site --skip-links（PR）/ 完整检查（每周定时，含 38 条外链）
+guards       mutate_test.py（15 条）+ mutate_v2.py（29 条）+ 反向自检
+releases     sync.py --check（快照是否与线上一致）
+live         线上核对：产物指纹 + update.json + 抽样 APK 实算 sha256
+pages-config 断言域名在 data/ 里只出现一次，且 CNAME 与之相同
 ```
 
 「再构建一次比对哈希」这条值得单说：纯静态站的承诺之一是可重复构建。
 如果哪天有人在渲染里混进 `time.time()`，这条会立刻红——而不是等到某天
 「同一个 commit 在两个 CI 上跑出不同结果」时才开始怀疑人生。
+本版它真的抓到过一次：`update.json` 的 `generated_at` 一度写成构建时刻。
+
+### 反向自检：守卫链不能一起哑掉
+
+`guards` job 的最后一步是：手动改坏一个产物（`sed` 往 `<h1>` 里塞一个属性），
+**确认 `check_site.py` 确实变红**。
+
+理由：变异测试的判定方式是「注入缺陷 → 跑 check_site → 期望非零」。
+如果哪天 `check_site.py` 变成永远返回 0，两份变异测试会一起变成「全部自证通过」。
+那是双重失效，而且表面上全绿。
 
 ## 变异测试：守卫的自证
 
 ```bash
 python3 scripts/build_site.py
 python3 scripts/mutate_test.py     # 注入 15 种缺陷，逐条确认自检会红
+python3 scripts/mutate_v2.py       # 注入 29 种缺陷（新产物 / 新页面 / PWA）
 ```
+
+分成两份而不是合成一份，是为了在 CI 日志里一眼看出**红的是老守卫还是新守卫**。
 
 `mutate_test.py` 把产物复制一份，注入缺陷（删页面、改版本号、删校验值区块、
 把卡片改回整块 `<a>`、CSS 少一个大括号、把主题脚本挪到样式表之后……），

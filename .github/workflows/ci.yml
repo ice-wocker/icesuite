@@ -24,11 +24,16 @@ jobs:
         run: |
           # 产物清单写全：少一个文件在浏览器里就是 404，而构建本身是绿的。
           for f in index.html store.html tags.html search.json update.json CNAME 404.html \
-                   sitemap.xml robots.txt feed.xml icon.svg style.css; do
+                   sitemap.xml robots.txt feed.xml icon.svg style.css \
+                   latest.html timeline.html compare.html collections.html stats.html \
+                   stats.json graph.json content.json manifest.json sw.js icon-maskable.svg; do
             test -f "site/$f" || { echo "缺少产物 $f"; exit 1; }
           done
           pages=$(find site -name '*.html' | wc -l)
-          test "$pages" -ge 14
+          # 页面数下限写 20：新增了 5 张（最新/时间线/对比/集合/数据）+ 404。
+          # 写死一个下限是**有意**的——它挡的是「生成器某天少渲染一批页面」，
+          # 而不是「应用数量变化」。应用数量那条另有与快照对齐的断言。
+          test "$pages" -ge 20
           echo "页面数 $pages"
           # 商店页必须真的有可下载的应用，不能是空壳
           # 与快照对齐，而不是写死一个数字——应用数量是自动发现的结果
@@ -49,17 +54,14 @@ jobs:
           test "$sm" -ge $((want - 1)) || { echo "sitemap 只有 $sm 条，页面 $want 张（404 不计入）"; exit 1; }
           grep -q '404.html' site/sitemap.xml && { echo "404.html 不该进 sitemap"; exit 1; }
           echo "sitemap 条目 $sm（页面 $want，404 不计入）"
-      - name: 构建应可重复（同一份输入产出同一份产物）
+      - name: 构建应可重复 + 产物自索引自洽
         run: |
-          # 纯静态站的「可重复构建」是它自己的承诺之一。
-          # 做法：再构建一次，比对两次产物的哈希——如果构建里混进了
-          # 时间戳/随机数，这里立刻红。
-          h1=$(find site -type f | sort | xargs sha256sum | sha256sum)
-          python3 scripts/build_site.py > /dev/null
-          h2=$(find site -type f | sort | xargs sha256sum | sha256sum)
-          echo "第一次 $h1"
-          echo "第二次 $h2"
-          test "$h1" = "$h2" || { echo "构建不可重复：两次产物不一致"; exit 1; }
+          # 「可重复构建」的检查只有一份实现：check_site.py --reproducible。
+          # 以前这里是 shell 里手写的一段，check_site 那边另有一套，
+          # 两套迟早对不上（这个仓库里已经发生过一次同样的重复）。
+          python3 scripts/check_site.py --skip-links --reproducible
+          # 产物指纹（content.json 的 build.id）同时打进日志，方便人工核对
+          python3 -c "import json;d=json.load(open('site/content.json'));print('产物指纹',d['build']['id'][:16],'文件',d['build']['files'],'字节',d['build']['bytes'])"
 
   check:
     name: 结构与站内链接检查
@@ -88,9 +90,29 @@ jobs:
           python-version: '3.12'
       - run: python3 scripts/build_site.py
       # 守卫本身失效比没有守卫更危险：一条永远为绿的断言会让你以为有人看着。
-      # 这里对产物注入 15 种缺陷，逐条确认自检会红；没红就 fail。
-      - name: Mutate
+      # 这里分两批注入缺陷，逐条确认自检会红；没红就 fail。
+      # 分两批的原因：能一眼看出红的是老守卫（15 条）还是 v3 新守卫（25 条）。
+      - name: Mutate（老页面 / 老产物）
         run: python3 scripts/mutate_test.py
+      - name: Mutate（v3 新产物 / 新页面 / PWA）
+        run: python3 scripts/mutate_v2.py
+      # 变异测试自己也会腐烂：它靠「注入后再跑 check_site」判定，
+      # 如果哪天 check_site 的入口改名了，两份都会变成「全部自证通过」。
+      # 所以再验一次它确实能红：故意改坏一个产物，确认 mutate 链路上有红灯。
+      - name: 自检必须能失败（反向自检）
+        run: |
+          # 变异测试的判定方式是「注入缺陷 → 跑 check_site → 期望非零」。
+          # 如果 check_site 哪天变成了永远返回 0（比如入口改了、异常被吞了），
+          # 两份变异测试会一起变成「全部自证通过」—— 那是双重失效。
+          # 所以这里直接手动改坏一个产物，确认 check_site 真的会红。
+          sed -i 's/<h1>/<h1 data-x="1">/' site/index.html
+          if python3 scripts/check_site.py --skip-links > /tmp/rev.log 2>&1; then
+            echo "::error::产物被改动后自检仍全绿 —— 守卫链失效"
+            cat /tmp/rev.log
+            exit 1
+          fi
+          echo "反向自检通过：产物被改后自检确实变红"
+          grep -q 'content.json' /tmp/rev.log && echo "（红在 content.json 的 sha256 核对上，符合预期）"
 
   releases:
     name: 校验同步快照
@@ -111,6 +133,22 @@ jobs:
         # 快照过期不再靠「记得推代码」来避免：每小时 sync 会自己追。
         # 这里只做兜底——如果 sync 挂了好几天，这条会红。
         run: python3 scripts/sync.py --check
+
+  live:
+    name: 线上核对（部署后）
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: python3 scripts/build_site.py
+      # 本地全绿不代表线上那份是对的 —— 这个仓库的两次事故都属于这一类
+      # （店里 v2.6.0、Release 已经 v2.7.1，而构建和自检都绿着）。
+      # 这里直接对已发布的站点比对：产物指纹、update.json、抽样 APK 的 sha256。
+      - name: 线上与快照一致
+        run: python3 scripts/live_check.py --retries 8 --sample 4
 
   pages-config:
     name: 校验 Pages 用的 CNAME
