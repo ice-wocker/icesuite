@@ -1,0 +1,93 @@
+name: Sync registry
+
+# 站点不再需要「发版后推一次代码」。
+#
+# 这个工作流把 GitHub 当数据库读：账号下所有仓库、每个 Release 的版本号 / 体积 /
+# 包名 / sha256 / 发布时间，同步成 data/registry.json 并提交。
+# 有变化才提交 → 触发 deploy。没有变化就安静退出，不会把仓库刷成一串空提交。
+#
+# 触发方式：
+#   schedule  每小时一次（GitHub 的 cron 最小粒度，实际常晚几分钟）
+#   repository_dispatch  别的仓库发版时用 webhook 打一枪，秒级同步
+#   push      sync.py 自己改了也要立刻验一次（否则新逻辑要等一小时才跑）
+#   workflow_dispatch    手动
+#
+# 想让某个应用发版后立刻上站：在**那个应用仓库**配一个 webhook →
+#   Payload URL: https://api.github.com/repos/ice-wocker/icesuite/dispatches
+#   Content type: application/json
+#   Body: {"event_type":"release"}
+# 不配也能用，最多晚一小时。
+on:
+  schedule:
+    - cron: '17 * * * *'
+  repository_dispatch:
+    types: [release, sync]
+  # 手动 / 定时 / webhook 之外的第四种触发：sync.py 本身改了也要立刻验一次，
+  # 否则新逻辑要等下一个整点才跑第一次。限定路径，避免无关提交也去拉 API。
+  #
+  # 顺带记录一个坑：第一次推这个文件时曾出现一次「结论 failure、jobs 列表为空、
+  # 日志 404」的 run —— 那是推送瞬间 GitHub 用旧版 workflow 求值 push 事件的产物，
+  # 与 workflow 内容无关，之后不会再出现。
+  push:
+    branches: [ main ]
+    paths:
+      - 'scripts/sync.py'
+      - '.github/workflows/sync.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # 用 PAT 而不是默认 token：默认 token 推的提交不会触发 deploy 工作流
+          # （GitHub 防递归的机制），那样同步完站点更新不了，且没有任何报错。
+          token: ${{ secrets.SYNC_PAT || github.token }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Sync from GitHub
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_PAT || github.token }}
+        run: python3 scripts/sync.py
+      - name: Commit if changed
+        id: commit
+        run: |
+          if git diff --quiet -- data/registry.json; then
+            echo "registry 没有变化，跳过提交"
+            echo "changed=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/registry.json
+          git commit -m "chore(sync): 自动同步 Release 元数据" \
+                     -m "由 .github/workflows/sync.yml 生成。$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git push
+          echo "changed=1" >> "$GITHUB_OUTPUT"
+      # 没配 SYNC_PAT 时，默认 token 推的提交不会触发 deploy.yml（GitHub 防递归），
+      # 同步成功但站点不更新，而且日志全绿。显式再打一枪。
+      #
+      # 这里刻意不用 `secrets.X == ''` 做 if 条件：workflow 级上下文里引用 secrets
+      # 在部分情况下会让整次运行**一个 job 都不创建**（run 直接 failure，
+      # jobs 列表为空，日志都拿不到）。改成运行时判断，失败也只影响这一步。
+      - name: Trigger deploy (only when the default token was used)
+        if: steps.commit.outputs.changed == '1'
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_PAT || github.token }}
+          USED_PAT: ${{ secrets.SYNC_PAT != '' }}
+        run: |
+          if [ "$USED_PAT" = "true" ]; then
+            echo "用了 SYNC_PAT：push 已触发 deploy，无需重复"
+            exit 0
+          fi
+          gh workflow run deploy.yml --ref main \
+            || echo "::warning::触发 deploy 失败，下一次 push 或整点 cron 会补上"

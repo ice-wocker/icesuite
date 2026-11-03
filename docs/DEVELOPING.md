@@ -2,10 +2,78 @@
 
 > 🌐 语言 / Language: 中文 · [English](DEVELOPING.en.md)
 
-从零把这仓库跑起来、改一处代码、加一个功能、出一版包。
-假设你会 Java 与 Gradle，但不了解这个项目。
+从零把这仓库跑起来、改一处代码、加一个页面、加一个机器可读产物。
+假设你会 Python，但不了解这个项目。
 
-## 1. 环境
+> **这个仓库里同时有两个项目**：
+> 根目录的 `scripts/` + `data/` 是**站点**（本文件讲的）；
+> `app/` 是 Android 应用 **ModelScopeBrowser** 的源码（它的工具链是 JDK 17 + SDK 36 + NDK 27，
+> 见文末「如果我只是想改云应用」一节）。两者互不依赖：站点构建不需要 JDK，
+> 应用构建不需要 Python。
+
+## 0. 站点：三分钟跑起来
+
+```bash
+python3 scripts/build_site.py      # 渲染 site/，零依赖，不需要 pip install 任何东西
+open site/index.html               # 双击就能看，不用起服务
+```
+
+就这样。没有 `npm install`、没有虚拟环境、没有构建缓存。
+唯一的可选依赖是 `node`（内联 JS 语法检查用；没有它会明确说跳过）。
+
+| 命令 | 用途 | 需要网络 |
+|---|---|---|
+| `python3 scripts/sync.py` | 刷新 `data/registry.json` | 是（`GH_TOKEN`） |
+| `python3 scripts/build_site.py` | 渲染 `site/` | 否 |
+| `python3 scripts/check_site.py` | 自检（结构 + 一致性 + 38 条外链） | 外链部分需要 |
+| `python3 scripts/check_site.py --skip-links` | PR 上用的快检查 | 否 |
+| `python3 scripts/check_site.py --reproducible` | 再构建一次逐字节比对 | 否 |
+| `python3 scripts/js_syntax.py` | 内联 JS 语法检查 | 否 |
+| `python3 scripts/mutate_test.py` | 老守卫自证（15 条） | 否 |
+| `python3 scripts/mutate_v2.py` | 新守卫自证（29 条） | 否 |
+| `python3 scripts/live_check.py` | 核对线上那份 | 是 |
+
+### 0.1 加一个页面
+
+1. 在 `scripts/pages.py` 里写一个函数，返回 `(title, body_html, meta_dict)`。
+   **不要在这里写 `<head>`、导航、页脚**——外壳只有 `build_site.page()` 一份。
+2. 在 `build_site.build()` 里调 `_emit("xxx.html", pages.xxx_page(...), desc=..., active="xxx.html")`。
+   `_emit` 会自动补 `canonical` 和导航高亮。
+3. 如果要进导航，改 `nav_items()`；窄屏导航只显示品牌与主题按钮，靠首页入口与页脚进。
+4. 在 `check_site.py` 里加一条「页面生成了但内容是空的」的断言，并在 `mutate_v2.py` 里
+   加一条「把它删掉 → 必须红」的用例。**没有后者，前者就是没人验过的守卫。**
+5. `sitemap.xml` 会自动收录（它遍历 `projects` + 固定列表，固定列表在 `write_sitemap` 里补）。
+
+### 0.2 加一个机器可读产物
+
+1. 想清楚它是给谁用的、`generated_at` 该取什么。
+   **只要这个文件进了 `site/`，它就必须可复现**——不许出现 `time.time()` 或随机数。
+   「数据什么时候新鲜」用 `util.source_stamp()`（快照时间）。
+2. 生成顺序：如果它要索引其它产物（像 `content.json`），必须最后写。
+3. 在 `check_site.py` 里断言「它和模型一致」，而不是「它存在」。后者是橡皮图章。
+
+### 0.3 改文案
+
+只改 `data/projects.py`，别抄版本号。
+
+合并规则在 `scripts/overlay.py`，`MACHINE_FIELDS` 列出的字段手写层一律不生效。
+想覆盖机器字段 = 想重新制造「页面写着 v2.6.0、线上已经 v2.7.1」那起事故。
+
+### 0.4 加一个下载源
+
+改 `data/mirrors.py`。这个文件是手写的，因为镜像站是别人家的服务，
+**没有任何自动机制能保证它活着**。加之前先用三个包实测：
+
+```bash
+for f in <三个不同大小的包>; do
+  time curl -sSL -o /dev/null "https://<镜像前缀>https://github.com/..."
+done
+```
+
+实测口径写进 `note` 字段。做不到就别加——一个连不上的源排进候选，
+用户看到的就是「链接经常失效」。
+
+## 1. 应用侧环境（只有改 `app/` 才需要）
 
 | 组件 | 版本 | 说明 |
 |---|---|---|

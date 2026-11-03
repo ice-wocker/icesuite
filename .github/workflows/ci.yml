@@ -1,0 +1,168 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # 外链会随时间腐烂（Release 被删、仓库改名），即使仓库没动也定期体检
+    - cron: '0 4 * * 1'
+
+jobs:
+  build:
+    name: 构建站点
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Build
+        run: python3 scripts/build_site.py
+      - name: Assert output
+        run: |
+          # 产物清单写全：少一个文件在浏览器里就是 404，而构建本身是绿的。
+          for f in index.html store.html tags.html search.json update.json CNAME 404.html \
+                   sitemap.xml robots.txt feed.xml icon.svg style.css \
+                   latest.html timeline.html compare.html collections.html stats.html \
+                   stats.json graph.json content.json manifest.json sw.js icon-maskable.svg; do
+            test -f "site/$f" || { echo "缺少产物 $f"; exit 1; }
+          done
+          pages=$(find site -name '*.html' | wc -l)
+          # 页面数下限写 20：新增了 5 张（最新/时间线/对比/集合/数据）+ 404。
+          # 写死一个下限是**有意**的——它挡的是「生成器某天少渲染一批页面」，
+          # 而不是「应用数量变化」。应用数量那条另有与快照对齐的断言。
+          test "$pages" -ge 20
+          echo "页面数 $pages"
+          # 商店页必须真的有可下载的应用，不能是空壳
+          # 与快照对齐，而不是写死一个数字——应用数量是自动发现的结果
+          n=$(grep -o 'data-apk="' site/store.html | wc -l)
+          want=$(python3 -c "import json;d=json.load(open('data/registry.json'))['projects'];print(sum(1 for p in d.values() if (p.get('latest') or {}).get('asset')))")
+          test "$n" -eq "$want" || { echo "商店页 $n 个可下载 != 快照 $want 个"; exit 1; }
+          echo "商店页可下载 $n 个"
+          # 每个仓库都必须有页面：漏一个就是「新项目上不了站」又回来了
+          miss=$(python3 scripts/assert_pages.py)
+          test -z "$miss" || { echo "这些仓库没有生成页面: $miss"; exit 1; }
+          echo "每个仓库都有页面"
+          # sitemap 必须收录**所有可能被索引的页面**：项目页 + 首页 + 商店 + 标签。
+          # 不能拿 `页面数` 直接比——404.html 是 noindex 页面，本就不该进 sitemap，
+          # 差这一个才是对的。上一版这条断言写成 `sm >= pages`，于是它必然失败，
+          # 而且失败信息只会说「Process completed with exit code 1」，看不出是这条。
+          sm=$(grep -c '<url>' site/sitemap.xml)
+          want=$((pages))          # 页面数（含 404）
+          test "$sm" -ge $((want - 1)) || { echo "sitemap 只有 $sm 条，页面 $want 张（404 不计入）"; exit 1; }
+          grep -q '404.html' site/sitemap.xml && { echo "404.html 不该进 sitemap"; exit 1; }
+          echo "sitemap 条目 $sm（页面 $want，404 不计入）"
+      - name: 构建应可重复 + 产物自索引自洽
+        run: |
+          # 「可重复构建」的检查只有一份实现：check_site.py --reproducible。
+          # 以前这里是 shell 里手写的一段，check_site 那边另有一套，
+          # 两套迟早对不上（这个仓库里已经发生过一次同样的重复）。
+          python3 scripts/check_site.py --skip-links --reproducible
+          # 产物指纹（content.json 的 build.id）同时打进日志，方便人工核对
+          python3 -c "import json;d=json.load(open('site/content.json'));print('产物指纹',d['build']['id'][:16],'文件',d['build']['files'],'字节',d['build']['bytes'])"
+
+  check:
+    name: 结构与站内链接检查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: python3 scripts/build_site.py
+      # PR 上跳过外链（GitHub 侧有速率限制，反馈要快）；定时任务才全量查
+      - name: Check structure
+        if: github.event_name != 'schedule'
+        run: python3 scripts/check_site.py --skip-links
+      - name: Check structure + links (scheduled)
+        if: github.event_name == 'schedule'
+        run: python3 scripts/check_site.py
+
+  guards:
+    name: 守卫自证（变异测试）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: python3 scripts/build_site.py
+      # 守卫本身失效比没有守卫更危险：一条永远为绿的断言会让你以为有人看着。
+      # 这里分两批注入缺陷，逐条确认自检会红；没红就 fail。
+      # 分两批的原因：能一眼看出红的是老守卫（15 条）还是 v3 新守卫（25 条）。
+      - name: Mutate（老页面 / 老产物）
+        run: python3 scripts/mutate_test.py
+      - name: Mutate（v3 新产物 / 新页面 / PWA）
+        run: python3 scripts/mutate_v2.py
+      # 变异测试自己也会腐烂：它靠「注入后再跑 check_site」判定，
+      # 如果哪天 check_site 的入口改名了，两份都会变成「全部自证通过」。
+      # 所以再验一次它确实能红：故意改坏一个产物，确认 mutate 链路上有红灯。
+      - name: 自检必须能失败（反向自检）
+        run: |
+          # 变异测试的判定方式是「注入缺陷 → 跑 check_site → 期望非零」。
+          # 如果 check_site 哪天变成了永远返回 0（比如入口改了、异常被吞了），
+          # 两份变异测试会一起变成「全部自证通过」—— 那是双重失效。
+          # 所以这里直接手动改坏一个产物，确认 check_site 真的会红。
+          sed -i 's/<h1>/<h1 data-x="1">/' site/index.html
+          if python3 scripts/check_site.py --skip-links > /tmp/rev.log 2>&1; then
+            echo "::error::产物被改动后自检仍全绿 —— 守卫链失效"
+            cat /tmp/rev.log
+            exit 1
+          fi
+          echo "反向自检通过：产物被改后自检确实变红"
+          grep -q 'content.json' /tmp/rev.log && echo "（红在 content.json 的 sha256 核对上，符合预期）"
+
+  releases:
+    name: 校验同步快照
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Build
+        run: python3 scripts/build_site.py
+      # 商店页的版本号/体积来自 data/releases.json。它是个快照，
+      # 仓库发了新版但没人重新生成，商店就会一直显示旧版本——而且没人会发现。
+      # 这里联网对比一次，把「快照过期」变成 CI 红。
+      - name: registry.json 是否与线上 Release 一致
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_PAT || github.token }}
+        # 快照过期不再靠「记得推代码」来避免：每小时 sync 会自己追。
+        # 这里只做兜底——如果 sync 挂了好几天，这条会红。
+        run: python3 scripts/sync.py --check
+
+  live:
+    name: 线上核对（部署后）
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: python3 scripts/build_site.py
+      # 本地全绿不代表线上那份是对的 —— 这个仓库的两次事故都属于这一类
+      # （店里 v2.6.0、Release 已经 v2.7.1，而构建和自检都绿着）。
+      # 这里直接对已发布的站点比对：产物指纹、update.json、抽样 APK 的 sha256。
+      - name: 线上与快照一致
+        run: python3 scripts/live_check.py --retries 8 --sample 4
+
+  pages-config:
+    name: 校验 Pages 用的 CNAME
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: python3 scripts/build_site.py
+      # 域名写错会导致 GitHub Pages 掉回 *.github.io，且没有任何报错。
+      # 这里把「域名只有一处真相源」钉住。
+      - name: Domain appears exactly once as source of truth
+        run: |
+          n=$(grep -c 'icesuite.eu.org' data/projects.py)
+          test "$n" -eq 1
+          grep -q 'icesuite.eu.org' site/CNAME

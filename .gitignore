@@ -27,3 +27,9 @@ keystore.properties
 # 系统文件
 .DS_Store
 Thumbs.db
+# ---- icesuite 静态站 ----
+site/
+
+# Python
+__pycache__/
+*.pyc
