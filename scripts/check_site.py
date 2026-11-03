@@ -4,7 +4,7 @@
 1. 下载链接是不是真的能下（商店页每个 APK 都 HEAD 一次，并核对字节数）
 2. 站内链接有没有指向不存在的页面（拼错 id 就白给一个 404）
 3. 有没有页面忘了 CNAME / 首页是否漏了某个项目
-4. 商店页与 releases.json 是否一致（体积、版本、可安装集合、一键下载按钮）
+4. 商店页与快照是否一致（体积、版本、可安装集合、一键下载按钮）
 
 用标准库，不引入 requests。为什么要有这个：站点的内容源是手写清单，
 最典型的翻车方式是「改了 repo 名或 APK 文件名，但站点点进去 404」——
@@ -24,11 +24,44 @@ SITE_DIR = ROOT / "site"
 UA = {"User-Agent": "ice-suite-link-check/1.0"}
 
 
-def load_releases():
-    f = ROOT / "data" / "releases.json"
+def load_registry():
+    """读 sync.py 生成的快照。缺失时返回空字典，让「新增快照」这类检查报错。"""
+    f = ROOT / "data" / "registry.json"
     if not f.exists():
         return {}
-    return json.loads(f.read_text(encoding="utf-8")).get("releases", {})
+    return json.loads(f.read_text(encoding="utf-8")).get("projects", {})
+
+
+def project_meta():
+    """从构建脚本里拿「站点认为有哪些项目」。不重复实现合并逻辑。"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("build_site", ROOT / "scripts" / "build_site.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    _, _, projects, _ = mod.load()
+    return projects
+
+
+def flat_releases(registry):
+    """{repo: {tag, size, url, ...}} —— 从注册表里摊平成商店页需要的形状。
+
+    商店页只认「每个仓库的当前可安装包」这一个概念，和旧的按仓库快照同构，
+    所以下面的断言全部照旧能用，只是数据来源从不入流的快照换成了自动同步的快照。
+    """
+    out = {}
+    for repo, reg in registry.items():
+        latest = reg.get("latest") or {}
+        asset = latest.get("asset") or {}
+        if not asset.get("url"):
+            continue
+        out[repo] = {
+            "tag": latest.get("tag") or "",
+            "size": asset.get("size") or 0,
+            "url": asset["url"],
+            "asset": asset.get("name") or "",
+            "published_at": latest.get("published_at") or "",
+        }
+    return out
 
 
 def head(url, timeout=20, retries=2):
@@ -59,12 +92,14 @@ def main():
 
     ns = {}
     exec((ROOT / "data" / "projects.py").read_text(encoding="utf-8"), ns)
-    projects = ns["PROJECTS"]
     site = ns["SITE"]
     author = site["author"]
-    for p in projects:
-        p.setdefault("repo_url", f"https://github.com/{author}/{p['repo']}")
-    releases = load_releases()
+    # 项目清单以构建脚本合并出来的那份为准（手写叠加层 + 自动发现），
+    # 拿 data/projects.py 当基准会漏掉自动发现的仓库——那正是上一版
+    # 「新项目必须推代码才能上站」的另一半。
+    projects = project_meta()
+    registry = load_registry()
+    releases = flat_releases(registry)
     errors, warnings = [], []
 
     # --- 1. 产物结构 ---
@@ -106,7 +141,7 @@ def main():
     ids = [p["id"] for p in projects]
     for pid in ids:
         if not (SITE_DIR / f"{pid}.html").exists():
-            errors.append(f"项目页缺失：{pid}.html")
+            errors.append(f"页面缺失：项目页 {pid}.html")
     index = (SITE_DIR / "index.html").read_text(encoding="utf-8")
     for p in projects:
         if f'{p["id"]}.html' not in index:
@@ -126,24 +161,24 @@ def main():
                 broken.add(f"{html_file.name} -> {href}")
     errors.extend(f"站内死链：{b}" for b in sorted(broken))
 
-    # --- 3.5 商店页与 releases.json 一致 ---
-    # 商店页上的「版本 / 体积 / 能否安装」必须是 releases.json 的投影。
+    # --- 3.5 商店页与快照一致 ---
+    # 商店页上的「版本 / 体积 / 能否安装」必须是 registry.json 的投影。
     # 这层校验的价值在于：以后改渲染逻辑改坏了，不会静默上线一个空商店。
     store = (SITE_DIR / "store.html").read_text(encoding="utf-8") if (SITE_DIR / "store.html").exists() else ""
     if store:
         apks = re.findall(r'data-apk="([^"]+)"[^>]*data-apk-size="(\d+)"', store)
         if len(apks) != len(releases):
-            errors.append(f"商店页可下载应用 {len(apks)} 个 != releases.json 里 {len(releases)} 个")
+            errors.append(f"商店页可下载应用 {len(apks)} 个 != 快照里 {len(releases)} 个")
         for url, size in apks:
             repo = url.split("/")[4] if url.count("/") > 4 else ""
             rel = releases.get(repo)
             if not rel:
-                errors.append(f"商店页有 releases.json 里没有的仓库：{repo}")
+                errors.append(f"商店页有快照里没有的仓库：{repo}")
                 continue
             if str(rel["size"]) != size:
                 errors.append(f"{repo} 页面体积 {size} != 真实 {rel['size']}")
             if rel["url"] != url:
-                errors.append(f"{repo} 页面链接与 releases.json 不一致：{url}")
+                errors.append(f"{repo} 页面链接与快照不一致：{url}")
         # 必须匹配按钮本身，不能只搜 "data-bulk" ——
         # 内联 JS 里也有 "[data-bulk]" 字样，宽匹配会让这条检查永远为真
         if not re.search(r'data-bulk="1"', store):
@@ -342,7 +377,9 @@ def main():
     tags_page = (SITE_DIR / "tags.html").read_text(encoding="utf-8") if (SITE_DIR / "tags.html").exists() else ""
     all_tags = sorted({t for p in projects for t in p["tags"]})
     for t in all_tags:
-        if f"<h2>{t}" not in tags_page:
+        # 必须是「某个分组的标题」而不是正文里恰好提到。原来只查 `<h2>{t}`，
+        # 于是删掉整个 indexgroup 区块后仍然可能在别处命中——变异测试抓到了这条。
+        if not re.search(r'<div class="indexgroup" id="[^"]+"><h2>' + re.escape(t) + r'[\s<]', tags_page):
             errors.append(f"tags.html 缺少标签「{t}」")
     # 反向：标签索引里不许出现清单外的标签
     listed = re.findall(r'<div class="indexgroup" id="[^"]+"><h2>([^<]+)', tags_page)
@@ -443,6 +480,88 @@ def main():
     for rel in releases.values():
         if rel["url"] not in feed:
             errors.append(f"feed.xml 没有包含 {rel['asset']} 的下载地址")
+
+    # --- 3.13 自动发现必须真的生效 ---
+    # 这两条守的是这一版的核心承诺：「新项目不用登记」「版本不用推代码」。
+    # 它们最容易的失效方式不是报错，而是悄悄退回手写清单——
+    # 站点看起来完全正常，只是新仓库永远不出现。
+    reg = registry
+    auto = [p for p in projects if p.get("auto")]
+    if not reg:
+        errors.append("data/registry.json 不存在——运行 python3 scripts/sync.py 生成")
+    else:
+        covered = {p["repo"] for p in projects}
+        for repo in reg:
+            if repo not in covered:
+                errors.append(f"registry.json 里有 {repo}，但站点上没有它的页面"
+                              "（自动发现失效，新项目上不了站）")
+        # 每个仓库的版本号必须来自快照，而不是手写文案里的历史值。
+        # 两道：① 构建视角的字段一致；② 产物里「当前版本」那张事实卡是同一个值。
+        # 只做 ① 会漏掉「字段对、但页面渲染用了别的变量」这类半成品。
+        for p in projects:
+            r = reg.get(p["repo"])
+            if not r:
+                continue
+            want = ((r.get("latest") or {}).get("tag")) or ""
+            if (p.get("version") or "") != want:
+                errors.append(f"{p['id']}: 页面版本 {p.get('version')!r} != 快照 {want!r}"
+                              "（版本号又退回手写了？）")
+                continue
+            if not want:
+                continue
+            pf = SITE_DIR / f"{p['id']}.html"
+            if not pf.exists():
+                continue
+            body = pf.read_text(encoding="utf-8")
+            m = re.search(r"<b>([^<]*)</b><span>当前版本</span>", body)
+            if not m:
+                errors.append(f"{p['id']}.html 没有「当前版本」事实卡"
+                              "（快照有版本号，页面上却看不到）")
+            elif m.group(1) != want:
+                errors.append(f"{p['id']}.html 当前版本显示 {m.group(1)!r} != 快照 {want!r}")
+    if not auto:
+        errors.append("没有任何「自动收录」项目——所有卡片都来自手写清单。"
+                      "这在本账号下不可能：registry.json 里必然有未手写的仓库。"
+                      "要么发现逻辑坏了，要么手写清单把所有仓库都抄了一遍（那等于回到手工登记）")
+
+    # --- 3.14 快照里的元数据必须真的被渲染出来 ---
+    # 「有数据但没渲染」是这类改造最典型的半成品状态：快照天天自动更新，
+    # 页面上却还是老样子，而且没有任何东西会红。
+    sample = [p for p in projects if p.get("asset_sha256")]
+    detail = "".join(f.read_text(encoding="utf-8") for f in SITE_DIR.rglob("*.html"))
+    # 逐页核对：每个有 sha256 的项目页都必须真的渲染出来。
+    # 「全站任意一处出现 class=\"sha\"」是橡皮图章——变异测试注入缺陷后照样全绿。
+    for p in projects:
+        sha = (p.get("asset_sha256") or "").strip()
+        if not sha:
+            continue
+        page_file = SITE_DIR / f"{p['id']}.html"
+        if not page_file.exists():
+            continue
+        body = page_file.read_text(encoding="utf-8")
+        if sha not in body:
+            errors.append(f"{p['id']}.html 没有显示 sha256 校验值"
+                          "（快照里有，页面上没有——校验功能等于不存在）")
+    for p in projects:
+        if not (p.get("asset_sha256") or "").strip():
+            continue
+        pf = SITE_DIR / f"{p['id']}.html"
+        if not pf.exists():
+            continue
+        if 'class="sha"' not in pf.read_text(encoding="utf-8"):
+            errors.append(f"{p['id']}.html 缺少校验值区块（.sha）——"
+                          "sha256 只是散在正文里，用户没法整段复制")
+    if not (SITE_DIR / "update.json").exists():
+        errors.append("缺少 update.json——客户端拿不到机器可读的版本清单")
+    else:
+        up = json.loads((SITE_DIR / "update.json").read_text(encoding="utf-8"))
+        if set(up.get("apps", {})) != set(releases):
+            errors.append("update.json 的应用集合与快照不一致："
+                          f"{sorted(set(up.get('apps', {})) ^ set(releases))}")
+        for repo, app in up.get("apps", {}).items():
+            rel = releases.get(repo) or {}
+            if app.get("version") != rel.get("tag"):
+                errors.append(f"update.json 里 {repo} 版本 {app.get('version')} != 快照 {rel.get('tag')}")
 
     # --- 4. 外链可达性 ---
     checked = 0

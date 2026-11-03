@@ -1,0 +1,68 @@
+name: Sync registry
+
+# 站点不再需要「发版后推一次代码」。
+#
+# 这个工作流把 GitHub 当数据库读：账号下所有仓库、每个 Release 的版本号 / 体积 /
+# 包名 / sha256 / 发布时间，同步成 data/registry.json 并提交。
+# 有变化才提交 → 触发 deploy。没有变化就安静退出，不会把仓库刷成一串空提交。
+#
+# 触发方式：
+#   schedule  每小时一次（GitHub 的 cron 最小粒度，实际常晚几分钟）
+#   repository_dispatch  别的仓库发版时用 webhook 打一枪，秒级同步
+#   workflow_dispatch    手动
+#
+# 想让某个应用发版后立刻上站：在**那个应用仓库**配一个 webhook →
+#   Payload URL: https://api.github.com/repos/ice-wocker/icesuite/dispatches
+#   Content type: application/json
+#   Body: {"event_type":"release"}
+# 不配也能用，最多晚一小时。
+on:
+  schedule:
+    - cron: '17 * * * *'
+  repository_dispatch:
+    types: [release, sync]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # 用 PAT 而不是默认 token：默认 token 推的提交不会触发 deploy 工作流
+          # （GitHub 防递归的机制），那样同步完站点更新不了，且没有任何报错。
+          token: ${{ secrets.SYNC_PAT || github.token }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Sync from GitHub
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_PAT || github.token }}
+        run: python3 scripts/sync.py
+      - name: Commit if changed
+        id: commit
+        run: |
+          if git diff --quiet -- data/registry.json; then
+            echo "registry 没有变化，跳过提交"
+            echo "changed=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/registry.json
+          git commit -m "chore(sync): 自动同步 Release 元数据" \
+                     -m "由 .github/workflows/sync.yml 生成。$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git push
+          echo "changed=1" >> "$GITHUB_OUTPUT"
+      - name: Trigger deploy when pushed with the default token
+        if: steps.commit.outputs.changed == '1' && secrets.SYNC_PAT == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy.yml --ref main || true

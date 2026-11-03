@@ -23,7 +23,7 @@ jobs:
       - name: Assert output
         run: |
           # 产物清单写全：少一个文件在浏览器里就是 404，而构建本身是绿的。
-          for f in index.html store.html tags.html search.json CNAME 404.html \
+          for f in index.html store.html tags.html search.json update.json CNAME 404.html \
                    sitemap.xml robots.txt feed.xml icon.svg style.css; do
             test -f "site/$f" || { echo "缺少产物 $f"; exit 1; }
           done
@@ -31,9 +31,15 @@ jobs:
           test "$pages" -ge 14
           echo "页面数 $pages"
           # 商店页必须真的有可下载的应用，不能是空壳
+          # 与快照对齐，而不是写死一个数字——应用数量是自动发现的结果
           n=$(grep -o 'data-apk="' site/store.html | wc -l)
-          test "$n" -ge 8
+          want=$(python3 -c "import json;d=json.load(open('data/registry.json'))['projects'];print(sum(1 for p in d.values() if (p.get('latest') or {}).get('asset')))")
+          test "$n" -eq "$want" || { echo "商店页 $n 个可下载 != 快照 $want 个"; exit 1; }
           echo "商店页可下载 $n 个"
+          # 每个仓库都必须有页面：漏一个就是「新项目上不了站」又回来了
+          miss=$(python3 scripts/assert_pages.py)
+          test -z "$miss" || { echo "这些仓库没有生成页面: $miss"; exit 1; }
+          echo "每个仓库都有页面"
           # sitemap 必须收录**所有可能被索引的页面**：项目页 + 首页 + 商店 + 标签。
           # 不能拿 `页面数` 直接比——404.html 是 noindex 页面，本就不该进 sitemap，
           # 差这一个才是对的。上一版这条断言写成 `sm >= pages`，于是它必然失败，
@@ -72,8 +78,22 @@ jobs:
         if: github.event_name == 'schedule'
         run: python3 scripts/check_site.py
 
+  guards:
+    name: 守卫自证（变异测试）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: python3 scripts/build_site.py
+      # 守卫本身失效比没有守卫更危险：一条永远为绿的断言会让你以为有人看着。
+      # 这里对产物注入 15 种缺陷，逐条确认自检会红；没红就 fail。
+      - name: Mutate
+        run: python3 scripts/mutate_test.py
+
   releases:
-    name: 校验 Release 元数据
+    name: 校验同步快照
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -85,10 +105,12 @@ jobs:
       # 商店页的版本号/体积来自 data/releases.json。它是个快照，
       # 仓库发了新版但没人重新生成，商店就会一直显示旧版本——而且没人会发现。
       # 这里联网对比一次，把「快照过期」变成 CI 红。
-      - name: releases.json 是否与线上 Release 一致
+      - name: registry.json 是否与线上 Release 一致
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/fetch_releases.py --check
+          GH_TOKEN: ${{ secrets.SYNC_PAT || github.token }}
+        # 快照过期不再靠「记得推代码」来避免：每小时 sync 会自己追。
+        # 这里只做兜底——如果 sync 挂了好几天，这条会红。
+        run: python3 scripts/sync.py --check
 
   pages-config:
     name: 校验 Pages 用的 CNAME

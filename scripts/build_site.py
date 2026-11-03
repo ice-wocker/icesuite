@@ -15,6 +15,7 @@ import html
 import json
 import re
 import shutil
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -67,7 +68,7 @@ def human_size(n):
 def load_mirrors():
     """读 data/mirrors.py —— 加速候选清单。
 
-    和 releases.json 不同，这个文件是**手写**的：镜像站是别人家的服务，
+    这个文件是**手写**的：镜像站是别人家的服务，
     没有自动机制能保证它们活着。所以它必须允许「这里就是空的」——
     一个候选都没有时，前端只是没有加速可开，站点照常构建。
     """
@@ -89,47 +90,143 @@ def load_mirrors():
     return mirrors, params
 
 
-def load_releases():
-    """读 data/releases.json —— 「这个包现在长什么样」的唯一真相源。
+def load_registry():
+    """读 data/registry.json —— 「GitHub 上真实是什么样」的唯一真相源。
 
-    文件不存在不算致命：只是商店页拿不到版本号，站点其余部分照常构建。
-    真正的把关在 check_site.py，那里会把它当错误报出来。
+    这个文件由 scripts/sync.py 自动生成：仓库清单、Release、包名、体积、
+    发布时间、语言、话题、线上地址全在里面。**没有任何一项要人登记。**
     """
-    f = DATA / "releases.json"
+    f = DATA / "registry.json"
     if not f.exists():
         return {}
-    return json.loads(f.read_text(encoding="utf-8")).get("releases", {})
+    payload = json.loads(f.read_text(encoding="utf-8"))
+    return payload.get("projects", {})
+
+
+# 叠加层没写时的兜底分组：按仓库有没有可安装产物 / 有没有 Pages 决定。
+# 新项目上线第一天就有位置，不会因为「还没人给它写文案」而从站点上消失。
+DEFAULT_GROUP = {"android": "apps", "site": "sites", "code": "code"}
+DEFAULT_ICON = {"android": "📱", "site": "🌐", "code": "🧩"}
+
+
+def derive(reg, site):
+    """从注册表的一条记录派生出项目卡片需要的全部字段。
+
+    这里的原则是：**机器能查到的绝不手写，查不到的绝不编。**
+    """
+    latest = reg.get("latest") or {}
+    asset = latest.get("asset") or {}
+    name = reg["repo"]
+    kind = reg.get("kind") or "code"
+    return {
+        "id": name.lower(),
+        "repo": name,
+        "name": name,
+        "group": DEFAULT_GROUP.get(kind, "code"),
+        "icon": DEFAULT_ICON.get(kind, "🧩"),
+        "pitch": reg.get("description") or name,
+        "summary": reg.get("description") or f"{name}（GitHub 上没有填描述）",
+        "tags": list(reg.get("topics") or []),
+        "metrics": [],
+        # 自动收录的项目没有人工写的亮点。与其留一个空标题，
+        # 不如把 GitHub 上真实可查的事实当成亮点列出来——它们本来就是读者想知道的。
+        "highlights": [],
+        "tech": [t for t in [reg.get("language")] if t],
+        "known_limits": [],
+        "store_note": "",
+        "installation": "",
+        "status": "mature" if (reg.get("releases") or []) else "beta",
+        "platform": kind if kind == "android" else None,
+        "external_url": reg.get("homepage") or "",
+        "external_label": "打开线上站点" if kind == "site" else "项目主页",
+        "version": latest.get("tag") or "",
+        "published_at": latest.get("published_at") or "",
+        "size_bytes": asset.get("size") or 0,
+        "size_text": human_size(asset.get("size")),
+        "downloads": asset.get("downloads") or 0,
+        "asset_name": asset.get("name") or "",
+        "asset_sha256": (asset.get("digest") or "").replace("sha256:", ""),
+        "dl_release": asset.get("url") or "",
+        "prerelease": bool(latest.get("prerelease")),
+        "history": [{"tag": r["tag"], "published_at": r["published_at"],
+                     "body": r.get("body") or "",
+                     "asset": (r.get("assets") or [{}])[0].get("name") if r.get("assets") else ""}
+                    for r in (reg.get("releases") or [])],
+        "repo_url": reg.get("repo_url") or f"https://github.com/{site['author']}/{name}",
+        "stars": reg.get("stars") or 0,
+        "pushed_at": reg.get("pushed_at") or "",
+        "archived": bool(reg.get("archived")),
+        "auto": True,
+    }
 
 
 def load():
+    """注册表 + 手写叠加层 → 项目清单。
+
+    顺序很重要：
+      1. registry.json 给出「有哪些项目、它们现在是什么版本」——机器的事实。
+      2. projects.py 里写的同 id 条目覆盖文案，并可以补手写事实（亮点/限制/最低系统）。
+      3. 注册表里有、projects.py 里没写的仓库，用 derive() 造一张卡，标注 auto。
+
+    反过来（以 projects.py 为清单）就是原来那套：新仓库不上站、版本号要人推代码更新。
+    """
     ns = {}
     exec((DATA / "projects.py").read_text(encoding="utf-8"), ns)
     site = ns.get("SITE", SITE)
     groups = ns.get("GROUPS", GROUPS)
-    projects = ns["PROJECTS"]
-    gmap = {k: (k, label, desc) for k, label, desc in groups}
-    releases = load_releases()
+    hand = ns["PROJECTS"]
+    reg_projects = load_registry()
     mirrors, mirror_params = load_mirrors()
+
+    gmap = {k: (k, label, desc) for k, label, desc in groups}
+
+    projects, auto_n = [], 0
+    for p in hand:
+        pid = p["id"]
+        merged = dict(p)
+        reg = reg_projects.get(p.get("repo") or "") or reg_projects.get(pid) or {}
+        if reg:
+            base = derive(reg, site)
+            # 手写字段优先；手写没写的用派生值补
+            for k, v in base.items():
+                if k not in merged or merged[k] in (None, "", [], {}):
+                    merged[k] = v
+            merged["auto"] = False
+        else:
+            # 手写了、但账号下没有这个仓库：保留卡片并明确标注，不静默丢掉
+            merged.setdefault("repo_url", f"https://github.com/{site['author']}/{merged.get('repo', pid)}")
+            merged["auto"] = False
+            merged["missing"] = True
+        projects.append(merged)
+
+    known = {p.get("repo") or p["id"] for p in projects} | {p["id"] for p in projects}
+    for name, reg in sorted(reg_projects.items()):
+        if name in known or name.lower() in known:
+            continue
+        projects.append(derive(reg, site))
+        auto_n += 1
+
     for p in projects:
-        rel = releases.get(p["repo"]) or {}
-        p["repo_url"] = f"https://github.com/{site['author']}/{p['repo']}"
+        p.setdefault("status", "beta")
+        p.setdefault("min_android", "")
+        p.setdefault("arch", "")
+        p.setdefault("store_note", "")
+        p.setdefault("installation", "")
         p["releases_url"] = f"https://github.com/{site['author']}/{p['repo']}/releases"
         p["url"] = f"{p['id']}.html"
-        p["group_label"] = gmap[p["group"]][1]
-        # 可安装产物完全由 releases.json 决定：有 .apk 才叫「能装」
-        p["version"] = rel.get("tag") or ""
-        p["published_at"] = rel.get("published_at") or ""
-        p["size_bytes"] = rel.get("size") or 0
-        p["size_text"] = human_size(rel.get("size"))
-        p["downloads"] = rel.get("downloads") or 0
-        p["dl_release"] = rel.get("url")
-        p["installable"] = bool(p.get("platform") and p["dl_release"])
-        # 文案里的 {size} 只在这里替换，保证「页面上的体积」与「Release 里的字节数」
-        # 永远是同一个数。没有 Release 的项目保留原样，不做假数据。
+        p["group_label"] = gmap.get(p["group"], (p["group"], p.get("group") or "其他", ""))[1]
+        p["installable"] = bool(p.get("platform") and p.get("dl_release"))
         if p["size_text"]:
             for k in ("pitch", "summary", "store_note"):
                 if isinstance(p.get(k), str):
                     p[k] = p[k].replace("{size}", p["size_text"])
+
+    # 手写清单里分组未知的（新加的组），补进 groups，否则导航上会缺一段
+    used = {p["group"] for p in projects}
+    for g in used:
+        if g not in gmap:
+            groups = list(groups) + [(g, g, "")]
+
     p_mirrors = {
         "mirrors": [
             {"id": m["id"], "label": m["label"], "prefix": m.get("prefix", ""),
@@ -138,7 +235,7 @@ def load():
         ],
         "params": mirror_params,
     }
-    return site, groups, projects, p_mirrors
+    return site, list(groups), projects, p_mirrors
 
 
 CSS = """
@@ -248,6 +345,29 @@ border:1px solid var(--border);background:var(--panel);color:var(--fg);font-size
 .metrics div{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:11px 14px}
 .metrics b{display:block;font-size:1.08rem;color:var(--fg)}
 .metrics span{color:var(--muted);font-size:.78rem}
+
+/* 「一次下齐」那块：标题、说明、按钮各占一行。
+   原来三者挤在一行里，说明文字被拆得四分五裂（窄屏更糟）*/
+.update-item{display:block;margin:.45em 0 .8em;line-height:1.75}
+/* 说明里的强调保持行内。上一版因为 `.bulk .row span{display:block}` 把它们
+   全顶成了独立段落，一句话被拆成五个自然段——手机上尤其难看 */
+.bulk .row span.update-item b{display:inline}
+/* 校验值：等宽、可选中、窄屏横向滚动而不是折行——折行的十六进制串没法选中复制 */
+pre.sha{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px 14px;overflow-x:auto;margin:.6em 0}
+pre.sha code{font-size:.82rem;white-space:pre;color:var(--fg)}
+/* 更新记录：默认收起。展开的是「我想知道这版改了什么」的人，不是所有人 */
+.relnotes{margin:.4em 0 1.4em}
+details.rel{background:var(--panel);border:1px solid var(--border);border-radius:10px;margin:.5em 0;padding:0 14px}
+details.rel>summary{cursor:pointer;padding:11px 0;list-style:none}
+details.rel>summary::-webkit-details-marker{display:none}
+details.rel>summary::before{content:"▸ ";color:var(--muted)}
+details.rel[open]>summary::before{content:"▾ "}
+details.rel h4{margin:.9em 0 .3em;font-size:.95rem}
+details.rel p,details.rel li{font-size:.88rem;color:var(--muted)}
+details.rel pre{overflow-x:auto;background:#0f151c;border-radius:8px;padding:10px}
+/* 「自动收录」这类标记要能一眼看出语气差别，不能和「稳定」混成同一颗徽章 */
+.badge.auto{opacity:.75;border-style:dashed}
+
 ul.hl{list-style:none;padding:0;margin:1em 0}
 ul.hl li{padding:12px 16px;background:var(--panel);border:1px solid var(--border);
 border-radius:10px;margin-bottom:9px}
@@ -1194,6 +1314,10 @@ def build(site, groups, projects, mirrors=None):
             st, kind = STATUS_LABEL.get(p["status"], ("", ""))
             badges = "".join(badge(t, "") for t in p["tags"][:3])
             badges += badge(st, kind)
+            if p.get("auto"):
+                # 自动发现的仓库用 GitHub 上的原始描述当文案——那是作者自己写的，
+                # 但没经过这里的人工编排。标出来，免得读者以为每个字都被审过。
+                badges += badge("自动收录", "")
             # 技术栈做成「可点」，但只指向真实存在的标签——tech 里有的词
             # 并不是标签（比如 "Java"），硬链到 #Java 会得到死锚点。
             chips = "".join(
@@ -1291,6 +1415,10 @@ def build(site, groups, projects, mirrors=None):
             facts.append(("发布时间", p["published_at"]))
         if p["downloads"]:
             facts.append(("累计下载", f"{p['downloads']} 次"))
+        if p["asset_name"]:
+            facts.append(("文件名", p["asset_name"]))
+        if p.get("prerelease"):
+            facts.append(("状态", "预发布（pre-release）"))
         facts_html = "".join(f'<div><b>{esc(v)}</b><span>{esc(k)}</span></div>' for k, v in facts)
 
         actions = []
@@ -1312,22 +1440,91 @@ def build(site, groups, projects, mirrors=None):
         pager.append(f'<a style="text-align:right" href="{next_p["url"]}">{esc(next_p["name"])} →</a>' if next_p else "<span></span>")
         pager.append("</div>")
 
+        # 校验值区块：这是「包是不是你以为的那个包」唯一能自证的东西。
+        # 没有快照里的 digest 就不写这一段——不编一个看起来很像的十六进制串。
+        sha_block = ""
+        if p.get("asset_sha256"):
+            sha_block = (
+                '<h2>校验安装包</h2>'
+                '<p style="color:var(--muted);font-size:.9rem;max-width:64ch">'
+                'GitHub 在 Release 元数据里给出的 sha256。下完对一下，对不上就是没下全或被人换过。</p>'
+                f'<pre class="sha"><code>sha256sum {esc(p["asset_name"])}\n'
+                f'{esc(p["asset_sha256"])}</code></pre>'
+                '<p style="color:var(--muted);font-size:.86rem">Windows：'
+                f'<code>certutil -hashfile {esc(p["asset_name"])} SHA256</code></p>')
+
+        # 更新记录：Release 正文本来就是作者写的 changelog，白拿一部版本史。
+        hist = [h for h in (p.get("history") or []) if h.get("tag")]
+        history_block = ""
+        if hist:
+            rows = []
+            for h in hist[:5]:
+                body = md_subset(h.get("body") or "")
+                if not body.strip():
+                    body = ('<p class="fine">这一版没有写更新说明'
+                            '（Release 正文为空，只有 GitHub 自动生成的对比链接）。</p>')
+                rows.append(
+                    f'<details class="rel"><summary><b>{esc(h["tag"])}</b>'
+                    f' <span class="fine">{esc(h.get("published_at") or "")}</span></summary>'
+                    f'{body}</details>')
+            history_block = ('<h2>更新记录</h2>'
+                             f'<div class="relnotes">{"".join(rows)}</div>')
+
+        # 自动收录项目的「亮点」= 从 GitHub 上能核实的事实。
+        # 不编文案：这几条每一条都能在仓库页面上点开看到。
+        facts_auto = []
+        if not [h for h in p.get("highlights") or [] if (h[1] if isinstance(h, tuple) else h)]:
+            if p.get("language"):
+                facts_auto.append(("主要语言", f"仓库主要语言是 {p['language']}，可直接在仓库里按它筛代码。"))
+            if p.get("stars") is not None:
+                facts_auto.append(("社区反应", f"{p['stars']} 个 Star、{p.get('forks', 0)} 次 Fork —— 数字取自构建时的仓库 API。"))
+            if p.get("pushed_at"):
+                facts_auto.append(("最近提交", f"{p['pushed_at']} 还有提交，不是放着不管的仓库。"))
+            if p.get("releases"):
+                facts_auto.append(("发版记录", f"{len(p['releases'])} 个 Release，最早可追溯到 "
+                                              f"{p['releases'][-1]['published_at'] or '未知'}。"))
+            if p.get("asset_name"):
+                facts_auto.append(("安装包", f"{p['asset_name']}（{p['size_text']}），"
+                                            f"sha256 可在下方核对。"))
+        highlight_items = [h for h in (p.get("highlights") or [])
+                           if (h[1] if isinstance(h, tuple) else h)]
+        if highlight_items:
+            hls = "".join(f'<li><b>{esc(a)}</b><span>{rich(b)}</span></li>'
+                          for a, b in (h if isinstance(h, tuple) else (h, "") for h in highlight_items))
+            hl_block = f'<h2>技术亮点</h2><ul class="hl">{hls}</ul>'
+        elif facts_auto:
+            hls = "".join(f'<li><b>{esc(a)}</b><span>{rich(b)}</span></li>' for a, b in facts_auto)
+            hl_block = (f'<h2>关于这个项目</h2><ul class="hl">{hls}</ul>'
+                        '<p class="fine" style="margin-top:.4em">以上几条是自动整理的事实，'
+                        '不是宣传文案；人工介绍还没写。</p>')
+        else:
+            hl_block = ""
+
+        tech_block = (f'<h2>技术栈</h2><div class="tech">{techs}</div>'
+                      if p.get("tech") else "")
+
+        auto_badge = badge("自动收录", "") if p.get("auto") else ""
+        # summary 与 pitch 常常是同一句话（自动收录的项目更是必然相同：
+        # 两者都取自仓库描述）。同一段文字在标题下连刷两遍，读者会以为页面出了 bug。
         plain = re.sub(r"<[^>]+>", "", p["summary"])
+        pitch_plain = re.sub(r"<[^>]+>", "", p["pitch"]).strip()
+        summary_block = ("" if plain.strip() == pitch_plain else
+                         f'<p style="margin-top:1.1em">{esc(plain)}</p>')
         b = f"""<div class="crumb"><a href="index.html">全部项目</a> / <a href="index.html#{p['group']}">{esc(p['group_label'])}</a></div>
 <div class="phead">
 <h1>{esc(p['name'])}</h1>
 <div class="sub">{p['pitch']}</div>
-<div>{badge(st, kind)}{tags_line}</div>
-<p style="margin-top:1.1em">{esc(p['summary'])}</p>
+<div>{badge(st, kind)}{auto_badge}{tags_line}</div>
+{summary_block}
 <div class="actions">{''.join(actions)}</div>
 <div class="metrics">{metrics}</div>
 {f'<div class="metrics" style="margin-top:10px">{facts_html}</div>' if facts_html else ''}
 </div>
-<h2>技术亮点</h2>
-<ul class="hl">{hls}</ul>
+{sha_block}
+{history_block}
+{hl_block}
 {limits_block}
-<h2>技术栈</h2>
-<div class="tech">{techs}</div>
+{tech_block}
 {''.join(pager)}"""
         (OUT / f'{p["id"]}.html').write_text(
             page(site, f'{p["name"]} · {site["name"]}', b,
@@ -1386,6 +1583,32 @@ def build(site, groups, projects, mirrors=None):
 
     # ---- icon.svg：手写，不引任何素材 ----
     (OUT / "icon.svg").write_text(ICON_SVG, encoding="utf-8")
+
+    # ---- update.json：机器可读的版本清单 ----
+    # 给「应用自带的检查更新」用：一个 JSON 就能判断有没有新版、从哪下、校验值是多少，
+    # 不必解析 HTML。站点本身也因此多了一个稳定的对外契约。
+    apps_json = {}
+    for p in apps:
+        apps_json[p["repo"]] = {
+            "name": p["name"],
+            "version": p["version"],
+            "prerelease": bool(p.get("prerelease")),
+            "published_at": p["published_at"],
+            "size": p["size_bytes"],
+            "file": p.get("asset_name") or "",
+            "sha256": p.get("asset_sha256") or None,
+            "url": p["dl_release"],
+            "page": f"{base}/{p['url']}",
+            "min_android": p.get("min_android") or None,
+            "abi": p.get("arch") or None,
+        }
+    (OUT / "update.json").write_text(json.dumps({
+        "_note": "由 scripts/build_site.py 从 data/registry.json 生成；"
+                 "sha256 来自 GitHub Release 资产元数据，取不到就是 null（不推算）。",
+        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "count": len(apps_json),
+        "apps": apps_json,
+    }, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     # ---- sitemap.xml / robots.txt / feed.xml ----
     write_sitemap(site, projects)
@@ -1473,6 +1696,52 @@ def write_feed(site, _unused, apps):
         + "\n".join(rows) + "\n</channel></rss>\n", encoding="utf-8")
 
 
+def md_subset(text):
+    """极小的 Markdown 子集渲染器（标题 / 列表 / 引用 / 围栏 / 粗体 / 行内 code / 链接）。
+
+    为什么不引 markdown 库：这个站点的立身之本是「零第三方依赖」，
+    为了渲染 Release 正文加一个依赖，等于用立身之本来换一个便利。
+    先整体转义，再按白名单放回标记——顺序不能反，否则 <script> 会被当 HTML 执行。
+    """
+    out, in_code, in_list = [], False, False
+    for raw in (text or "").splitlines():
+        line = raw.rstrip()
+        if line.strip().startswith("```"):
+            out.append("</code></pre>" if in_code else "<pre><code>")
+            in_code = not in_code
+            continue
+        if in_code:
+            out.append(html.escape(line))
+            continue
+        esc_line = html.escape(line)
+        esc_line = re.sub(r"`([^`]+)`", r"<code>\1</code>", esc_line)
+        esc_line = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", esc_line)
+        esc_line = re.sub(r"\[([^\]]+)\]\((https?://[^)\s]+)\)",
+                          r'<a href="\2" rel="nofollow noopener">\1</a>', esc_line)
+        m = re.match(r"^(#{1,4})\s+(.*)$", esc_line)
+        if m:
+            if in_list:
+                out.append("</ul>"); in_list = False
+            out.append(f'<h4>{m.group(2)}</h4>')
+            continue
+        if re.match(r"^\s*[-*+]\s+", esc_line):
+            if not in_list:
+                out.append("<ul>"); in_list = True
+            out.append("<li>" + re.sub(r"^\s*[-*+]\s+", "", esc_line) + "</li>")
+            continue
+        if in_list:
+            out.append("</ul>"); in_list = False
+        if esc_line.startswith("&gt;"):
+            out.append(f'<blockquote>{esc_line[4:].strip()}</blockquote>')
+        elif esc_line.strip():
+            out.append(f"<p>{esc_line}</p>")
+    if in_list:
+        out.append("</ul>")
+    if in_code:
+        out.append("</code></pre>")
+    return "".join(out)
+
+
 def rfc822(iso_date):
     """2026-09-29 → 'Tue, 29 Sep 2026 00:00:00 +0000'。RSS 只认这个格式。"""
     try:
@@ -1511,8 +1780,11 @@ def store_app_row(p, prefix=""):
 
     if p["installable"]:
         act = (f'<a class="btn primary" href="{p["dl_release"]}" '
-               f'data-apk="{p["dl_release"]}" data-apk-name="{esc(p["repo"])}.apk" '
-               f'data-apk-size="{p["size_bytes"]}">⬇ {p["size_text"] or "下载"}</a>'
+               f'data-apk="{p["dl_release"]}" '
+               f'data-apk-name="{esc(p.get("asset_name") or p["repo"] + ".apk")}" '
+               f'data-apk-size="{p["size_bytes"]}" '
+               f'data-apk-sha="{esc(p.get("asset_sha256") or "")}" '
+               f'data-apk-ver="{esc(p["version"])}">⬇ {p["size_text"] or "下载"}</a>'
                f'<a class="btn" href="{prefix}{p["url"]}">详情</a>')
         cls = "app"
     else:
@@ -1521,6 +1793,10 @@ def store_app_row(p, prefix=""):
         cls = "app none"
 
     badges = "".join(badge(t, "") for t in p["tags"][:2]) + badge(st, kind)
+    if p.get("auto"):
+        badges += badge("自动收录", "")
+    if p.get("prerelease"):
+        badges += badge("pre", "warn")
     return (f'<div class="{cls}">'
             f'<div class="ico">{ico}</div>'
             f'<div><div class="nm">{name}{badges}</div>'
@@ -1552,9 +1828,10 @@ def build_store(site, groups, projects, mirrors=None):
 <div class="row">
 <div class="grow">
 <b>一次下齐全部 {len(apps)} 个应用</b>
-<span>共 <span class="tot">{human_size(total_bytes)}</span>。
-会按你的地区自动决定要不要加速，并把各个包<b>轮转分摊到多个源</b>上，同时<b>并行发起</b>（每批 {5} 个）——
-小包慢就慢在建连上，并行之后总速度是几条连接之和；多源轮转则保证单源挂掉不会全灭。
+<span class="update-item">共 <span class="tot">{human_size(total_bytes)}</span>。
+会按你的地区自动决定要不要加速，并把各个包<b>轮转分摊到多个源</b>上，
+同时<b>并行发起</b>（每批 5 个）——小包慢就慢在建连上，并行之后总速度是几条连接之和；
+多源轮转则保证单源挂掉不会全灭。
 中途可停；某个包没下下来的话，下面有它的「换源重下」。</span>
 </div>
 <button class="btn primary" type="button" data-bulk="1">⬇ 一键下载全部（{human_size(total_bytes)}）</button>
@@ -1569,8 +1846,9 @@ def build_store(site, groups, projects, mirrors=None):
 <span class="tag">{esc(site['store_tagline'])}</span>
 </div>
 <p style="color:var(--muted);max-width:64ch">
-下面 {len(apps)} 个安装包全部来自本账号各仓库的 GitHub Release，
-版本号、体积、发布时间都是构建时从 Release 元数据里取的，不是写死的文案。
+下面 {len(apps)} 个安装包全部来自本账号各仓库的 GitHub Release。
+这份清单是<b>自动发现</b>的：你新开一个仓库发个 Release，最晚一小时内它就会出现在这里，
+不需要谁去改代码。版本号、体积、包名、sha256、发布时间都是构建时从 Release 元数据里取的，不是写死的文案。
 没有广告 SDK、没有追踪、没有账号体系——这一点和它们本来的实现一致。
 </p>
 {bulk}

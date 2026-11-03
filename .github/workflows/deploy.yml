@@ -1,7 +1,13 @@
 name: Deploy site
 
-# 把 data/projects.py 渲染成静态站点并发布到 GitHub Pages。
-# 站点是清单的投影，唯一真相源是 data/projects.py。
+# 把 data/（自动同步的 registry + 手写叠加层）渲染成静态站点并发布到 GitHub Pages。
+#
+# 内容源有两层：
+#   data/registry.json  ← scripts/sync.py 从 GitHub 自动同步（项目清单、版本、包元数据）
+#   data/projects.py    ← 人写的介绍 / 亮点 / 已知限制（可选叠加，不决定有哪些项目）
+#
+# 所以「发一个新版本」不需要人动这个仓库：sync 工作流更新快照 →
+# 这里的 paths 命中 data/** → 自动重新发布。
 on:
   push:
     branches: [ main ]
@@ -10,6 +16,9 @@ on:
       - 'scripts/**'
       - '.github/workflows/deploy.yml'
   workflow_dispatch:
+  # sync 用默认 token 推提交时不会触发 push 事件（GitHub 防递归），由它显式 dispatch
+  repository_dispatch:
+    types: [deploy]
 
 permissions:
   contents: read
@@ -32,7 +41,7 @@ jobs:
         run: python3 scripts/build_site.py
       - name: Assert output
         run: |
-          for f in index.html store.html tags.html search.json CNAME 404.html \
+          for f in index.html store.html tags.html search.json update.json CNAME 404.html \
                    sitemap.xml robots.txt feed.xml icon.svg style.css; do
             test -f "site/$f" || { echo "缺少产物 $f"; exit 1; }
           done
@@ -40,9 +49,13 @@ jobs:
           pages=$(find site -name '*.html' | wc -l)
           echo "生成 HTML 页面数: $pages"
           test "$pages" -ge 14
+          # 守卫不能写死「>= 8 个应用」：应用数量由 registry.json 决定，
+          # 写死数字的话，删掉一半应用构建照样绿。改成「与快照一致」。
           n=$(grep -o 'data-apk="' site/store.html | wc -l)
-          echo "商店页可下载: $n"
-          test "$n" -ge 8
+          want=$(python3 -c "import json;d=json.load(open('data/registry.json'))['projects'];print(sum(1 for p in d.values() if (p.get('latest') or {}).get('asset')))")
+          echo "商店页可下载: $n（快照里 $want）"
+          test "$n" -eq "$want" || { echo "商店页可下载数与快照不一致"; exit 1; }
+          test "$n" -ge 1
       # 发布前再跑一次自检：宁可不上线，也不让坏产物出去
       - name: Self check
         run: python3 scripts/check_site.py
