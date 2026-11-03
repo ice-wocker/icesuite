@@ -61,8 +61,21 @@ jobs:
                      -m "由 .github/workflows/sync.yml 生成。$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           git push
           echo "changed=1" >> "$GITHUB_OUTPUT"
-      - name: Trigger deploy when pushed with the default token
-        if: steps.commit.outputs.changed == '1' && secrets.SYNC_PAT == ''
+      # 没配 SYNC_PAT 时，默认 token 推的提交不会触发 deploy.yml（GitHub 防递归），
+      # 同步成功但站点不更新，而且日志全绿。显式再打一枪。
+      #
+      # 这里刻意不用 `secrets.X == ''` 做 if 条件：workflow 级上下文里引用 secrets
+      # 在部分情况下会让整次运行**一个 job 都不创建**（run 直接 failure，
+      # jobs 列表为空，日志都拿不到）。改成运行时判断，失败也只影响这一步。
+      - name: Trigger deploy (only when the default token was used)
+        if: steps.commit.outputs.changed == '1'
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh workflow run deploy.yml --ref main || true
+          GH_TOKEN: ${{ secrets.SYNC_PAT || github.token }}
+          USED_PAT: ${{ secrets.SYNC_PAT != '' }}
+        run: |
+          if [ "$USED_PAT" = "true" ]; then
+            echo "用了 SYNC_PAT：push 已触发 deploy，无需重复"
+            exit 0
+          fi
+          gh workflow run deploy.yml --ref main \
+            || echo "::warning::触发 deploy 失败，下一次 push 或整点 cron 会补上"
