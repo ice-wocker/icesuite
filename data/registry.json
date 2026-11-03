@@ -1,22 +1,28 @@
 {
   "_note": "由 scripts/sync.py 从 GitHub API 生成，请勿手改。构建时只读本文件，不联网。",
-  "generated_at": "2026-11-03T11:38:40Z",
+  "generated_at": "2026-11-03T13:10:12Z",
   "owner": "ice-wocker",
   "projects": {
     "GunFire": {
       "archived": false,
+      "counts": {
+        "assets": 6,
+        "open_issues": 0,
+        "releases": 3
+      },
       "created_at": "2026-10-01",
       "default_branch": "main",
       "description": "一个纯粹的安卓枪战游戏。623 KB，零第三方依赖，零权限。OpenGL ES 2.0 手写渲染，无引擎无素材。",
       "forks": 0,
       "has_license": true,
+      "has_pages": false,
       "homepage": "https://github.com/ice-wocker/GunFire/releases/latest",
       "kind": "android",
       "language": "Java",
       "latest": {
         "asset": {
           "digest": "sha256:850bb4737a308da1012c7727e2f8f8cf6bb17bd4d0782c22939c7f4db76a7597",
-          "downloads": 5,
+          "downloads": 12,
           "name": "app-release.apk",
           "size": 636651,
           "url": "https://github.com/ice-wocker/GunFire/releases/download/v1.1.0/app-release.apk"
@@ -31,7 +37,7 @@
           },
           {
             "digest": "sha256:850bb4737a308da1012c7727e2f8f8cf6bb17bd4d0782c22939c7f4db76a7597",
-            "downloads": 5,
+            "downloads": 12,
             "name": "app-release.apk",
             "size": 636651,
             "url": "https://github.com/ice-wocker/GunFire/releases/download/v1.1.0/app-release.apk"
@@ -56,7 +62,7 @@
             },
             {
               "digest": "sha256:850bb4737a308da1012c7727e2f8f8cf6bb17bd4d0782c22939c7f4db76a7597",
-              "downloads": 5,
+              "downloads": 12,
               "name": "app-release.apk",
               "size": 636651,
               "url": "https://github.com/ice-wocker/GunFire/releases/download/v1.1.0/app-release.apk"
@@ -134,18 +140,24 @@
     },
     "IceGuard": {
       "archived": false,
+      "counts": {
+        "assets": 8,
+        "open_issues": 0,
+        "releases": 4
+      },
       "created_at": "2026-10-01",
       "default_branch": "main",
       "description": "On-device Android 安全卫士：本机守护 + Shizuku 深度管理，零云端 ｜ On-device Android security guard, no cloud",
       "forks": 0,
       "has_license": true,
+      "has_pages": false,
       "homepage": "",
       "kind": "android",
       "language": "Kotlin",
       "latest": {
         "asset": {
           "digest": "sha256:e7971cbb39287ebd3f7b76a6c2b1053cb33633d13f5cfeaeee112ec46b7eb023",
-          "downloads": 42,
+          "downloads": 48,
           "name": "IceGuard-v1.1.0.apk",
           "size": 4562099,
           "url": "https://github.com/ice-wocker/IceGuard/releases/download/v1.1.0/IceGuard-v1.1.0.apk"
@@ -153,7 +165,7 @@
         "assets": [
           {
             "digest": "sha256:e7971cbb39287ebd3f7b76a6c2b1053cb33633d13f5cfeaeee112ec46b7eb023",
-            "downloads": 42,
+            "downloads": 48,
             "name": "IceGuard-v1.1.0.apk",
             "size": 4562099,
             "url": "https://github.com/ice-wocker/IceGuard/releases/download/v1.1.0/IceGuard-v1.1.0.apk"
@@ -178,7 +190,7 @@
           "assets": [
             {
               "digest": "sha256:e7971cbb39287ebd3f7b76a6c2b1053cb33633d13f5cfeaeee112ec46b7eb023",
-              "downloads": 42,
+              "downloads": 48,
               "name": "IceGuard-v1.1.0.apk",
               "size": 4562099,
               "url": "https://github.com/ice-wocker/IceGuard/releases/download/v1.1.0/IceGuard-v1.1.0.apk"
@@ -275,18 +287,24 @@
     },
     "KayaGo": {
       "archived": false,
+      "counts": {
+        "assets": 3,
+        "open_issues": 5,
+        "releases": 3
+      },
       "created_at": "2026-09-26",
       "default_branch": "main",
       "description": "KayaGo · 开源 Android 围棋 App，内置从零手写的 MCTS AI（纯 Java、零依赖、含可直接安装的 APK）",
       "forks": 0,
       "has_license": true,
+      "has_pages": false,
       "homepage": "",
       "kind": "android",
       "language": "Java",
       "latest": {
         "asset": {
           "digest": "sha256:0eb572a8a7f57f8f5d09393bae8e3fb130de0a0f94140a7908bef118b9628de1",
-          "downloads": 100,
+          "downloads": 106,
           "name": "KayaGo-1.2.0.apk",
           "size": 70972,
           "url": "https://github.com/ice-wocker/KayaGo/releases/download/v1.2.0/KayaGo-1.2.0.apk"
@@ -294,7 +312,7 @@
         "assets": [
           {
             "digest": "sha256:0eb572a8a7f57f8f5d09393bae8e3fb130de0a0f94140a7908bef118b9628de1",
-            "downloads": 100,
+            "downloads": 106,
             "name": "KayaGo-1.2.0.apk",
             "size": 70972,
             "url": "https://github.com/ice-wocker/KayaGo/releases/download/v1.2.0/KayaGo-1.2.0.apk"
@@ -312,7 +330,7 @@
           "assets": [
             {
               "digest": "sha256:0eb572a8a7f57f8f5d09393bae8e3fb130de0a0f94140a7908bef118b9628de1",
-              "downloads": 100,
+              "downloads": 106,
               "name": "KayaGo-1.2.0.apk",
               "size": 70972,
               "url": "https://github.com/ice-wocker/KayaGo/releases/download/v1.2.0/KayaGo-1.2.0.apk"
@@ -376,44 +394,66 @@
     },
     "ModelScopeBrowser": {
       "archived": false,
+      "counts": {
+        "assets": 10,
+        "open_issues": 5,
+        "releases": 10
+      },
       "created_at": "2026-09-26",
       "default_branch": "main",
       "description": "魔搭模型库轻量 Android 客户端：分页浏览/搜索 ModelScope 大模型，含详情页与网页兜底，内置 llama.cpp 离线对话与智能体",
       "forks": 0,
       "has_license": true,
+      "has_pages": false,
       "homepage": "",
       "kind": "android",
       "language": "Java",
       "latest": {
         "asset": {
-          "digest": "sha256:1692baa720123e7bc97a9e93649f39d7fe09fa00e1032ef8a3219601a95ae118",
-          "downloads": 0,
-          "name": "ModelScope-Models-2.7.1.apk",
-          "size": 8423941,
-          "url": "https://github.com/ice-wocker/ModelScopeBrowser/releases/download/v2.7.1/ModelScope-Models-2.7.1.apk"
+          "digest": "sha256:50639e98a2e191f7d26eab815c16ef106c83433b962cd336dde1865f46499d11",
+          "downloads": 1,
+          "name": "ModelScope-Models-2.8.0.apk",
+          "size": 8431925,
+          "url": "https://github.com/ice-wocker/ModelScopeBrowser/releases/download/v2.8.0/ModelScope-Models-2.8.0.apk"
         },
         "assets": [
           {
-            "digest": "sha256:1692baa720123e7bc97a9e93649f39d7fe09fa00e1032ef8a3219601a95ae118",
-            "downloads": 0,
-            "name": "ModelScope-Models-2.7.1.apk",
-            "size": 8423941,
-            "url": "https://github.com/ice-wocker/ModelScopeBrowser/releases/download/v2.7.1/ModelScope-Models-2.7.1.apk"
+            "digest": "sha256:50639e98a2e191f7d26eab815c16ef106c83433b962cd336dde1865f46499d11",
+            "downloads": 1,
+            "name": "ModelScope-Models-2.8.0.apk",
+            "size": 8431925,
+            "url": "https://github.com/ice-wocker/ModelScopeBrowser/releases/download/v2.8.0/ModelScope-Models-2.8.0.apk"
           }
         ],
-        "body": "## v2.7.1 — 五条分支收口 + 重新出包\n\n这一版不新增功能，做的是合并与对账：`fix/v2.6.1`、`fix/version-consistency`、`feat/agent-toolkit-57`、`feat/site-autoupdate`、`auto/profile-readme-1777` 五条分支此前各自独立开发、都没进过 `main`；版本号也各写各的（文档 2.6.1 / Release 页 2.7.0 / `app/build.gradle` 2.6.1）。现在全部合到一处。\n\n### 本版内容\n\n- 智能体工具 8 → 57 个，`agent/ToolRegistry` 作为工具说明 / 白名单 / 危险动作判定的唯一真源\n- 修掉一批「文档说到了、代码没做到」的问题（短读丢历史、无写入上限、断点续传拼错、备份规则空转、Android 14 前台服务类型等）\n- 站点自动更新链路（`site-src/`、`update.json`、过期检测、更新记录页）\n- `versionCode 15` / `versionName 2.7.0` 单一真源，README 与文档版本行对齐\n- GitHub 个人主页 README\n\n### 验证\n\n- `./gradlew testDebugUnitTest`：**168 个用例全绿**\n- `./gradlew lintRelease`：0 error\n- `./gradlew assembleRelease`：arm64-v8a（7 份 CPU 后端变体）+ armeabi-v7a 双 ABI，APK 8.1 MB\n\n> 说明：Release 包在本机构建，签名用的是 debug key（仓库无 `keystore.properties`），与历史 Release 的签名不一致，覆盖安装前请先卸载旧版。\n\nAPK SHA-256：`bbdd6e8e11b7d12752b0cb745a7b551489284f90806764ac33da0c489b99dd4f`\n\n**Full Changelog**: https://github.com/ice-wocker/ModelScopeBrowser/compare/v2.6.0...v2.7.1",
-        "name": "v2.7.1",
+        "body": "**Full Changelog**: https://github.com/ice-wocker/ModelScopeBrowser/compare/v2.7.0...v2.8.0",
+        "name": "v2.8.0",
         "prerelease": false,
-        "published_at": "2026-11-02",
-        "tag": "v2.7.1"
+        "published_at": "2026-11-03",
+        "tag": "v2.8.0"
       },
-      "pushed_at": "2026-11-02",
+      "pushed_at": "2026-11-03",
       "releases": [
         {
           "assets": [
             {
+              "digest": "sha256:50639e98a2e191f7d26eab815c16ef106c83433b962cd336dde1865f46499d11",
+              "downloads": 1,
+              "name": "ModelScope-Models-2.8.0.apk",
+              "size": 8431925,
+              "url": "https://github.com/ice-wocker/ModelScopeBrowser/releases/download/v2.8.0/ModelScope-Models-2.8.0.apk"
+            }
+          ],
+          "body": "**Full Changelog**: https://github.com/ice-wocker/ModelScopeBrowser/compare/v2.7.0...v2.8.0",
+          "name": "v2.8.0",
+          "prerelease": false,
+          "published_at": "2026-11-03",
+          "tag": "v2.8.0"
+        },
+        {
+          "assets": [
+            {
               "digest": "sha256:1692baa720123e7bc97a9e93649f39d7fe09fa00e1032ef8a3219601a95ae118",
-              "downloads": 0,
+              "downloads": 8,
               "name": "ModelScope-Models-2.7.1.apk",
               "size": 8423941,
               "url": "https://github.com/ice-wocker/ModelScopeBrowser/releases/download/v2.7.1/ModelScope-Models-2.7.1.apk"
@@ -552,27 +592,11 @@
           "prerelease": false,
           "published_at": "2026-09-27",
           "tag": "v2.2.0"
-        },
-        {
-          "assets": [
-            {
-              "digest": "sha256:5dec97665fb8753a08b04f577195813df6905aef6b5397b105244fac99bdfd13",
-              "downloads": 1,
-              "name": "ModelScope-Models-2.1.1.apk",
-              "size": 11588935,
-              "url": "https://github.com/ice-wocker/ModelScopeBrowser/releases/download/v2.1.1/ModelScope-Models-2.1.1.apk"
-            }
-          ],
-          "body": "## 修复\n\n- 修复 release 包（R8 混淆后）加载任意模型都失败的问题：`no non-static method \"Lxxx;.onToken(Ljava/lang/String;)V\"`\n  - 原因：native 层用字面方法名回调 `onToken`，v2.1 的 proguard 规则只保住了 native 方法与 `LlamaBridge` 本身，方法名被 R8 重命名\n  - 修复：保留 `LlamaBridge$TokenCallback` 接口及所有实现类的 `onToken` 方法名，并复核了产物 dex 中的 JNI 符号\n- 同时把本地模型索引改为原子写、修复 JNI 释放竞态等稳定性问题（详见 v2.1 说明）\n\n> ⚠️ **v2.1 的包不可用**（同样报该错误），请使用本版本。v2.1.1 与该 tag 之前的 v2.1 功能一致，仅修复混淆回归。\n\n## 安装\n\n正式签名（与仓库 `dist/` 内容一致），可直接覆盖安装 v1.0 / v1.1 / v2.0 / v2.1，无需卸载。\n要求：Android 7.0 (API 24) 及以上。\n",
-          "name": "v2.1.1 — 修复 R8 混淆导致模型无法加载",
-          "prerelease": false,
-          "published_at": "2026-09-27",
-          "tag": "v2.1.1"
         }
       ],
       "repo": "ModelScopeBrowser",
       "repo_url": "https://github.com/ice-wocker/ModelScopeBrowser",
-      "size_kb": 34093,
+      "size_kb": 34134,
       "stars": 1,
       "topics": [
         "agent",
@@ -590,18 +614,24 @@
     },
     "MusicFusion": {
       "archived": false,
+      "counts": {
+        "assets": 1,
+        "open_issues": 1,
+        "releases": 1
+      },
       "created_at": "2026-08-26",
       "default_branch": "main",
       "description": "Aggregated music player for Android. 9M+ legal tracks + 2,945 radio stations. 6 sources: Audius, Internet Archive, RadioBrowser, SomaFM, Openverse, Jamendo. Pure Java, 0 dependencies, full offline caching.",
       "forks": 0,
       "has_license": true,
+      "has_pages": false,
       "homepage": "",
       "kind": "android",
       "language": "Java",
       "latest": {
         "asset": {
           "digest": "sha256:122512ad15ffafc50d2962b0b2e95028f66b547c93fc5396e2199e2f47cf3fd8",
-          "downloads": 94,
+          "downloads": 100,
           "name": "musicfusion.apk",
           "size": 288715,
           "url": "https://github.com/ice-wocker/MusicFusion/releases/download/v13/musicfusion.apk"
@@ -609,7 +639,7 @@
         "assets": [
           {
             "digest": "sha256:122512ad15ffafc50d2962b0b2e95028f66b547c93fc5396e2199e2f47cf3fd8",
-            "downloads": 94,
+            "downloads": 100,
             "name": "musicfusion.apk",
             "size": 288715,
             "url": "https://github.com/ice-wocker/MusicFusion/releases/download/v13/musicfusion.apk"
@@ -627,7 +657,7 @@
           "assets": [
             {
               "digest": "sha256:122512ad15ffafc50d2962b0b2e95028f66b547c93fc5396e2199e2f47cf3fd8",
-              "downloads": 94,
+              "downloads": 100,
               "name": "musicfusion.apk",
               "size": 288715,
               "url": "https://github.com/ice-wocker/MusicFusion/releases/download/v13/musicfusion.apk"
@@ -660,18 +690,24 @@
     },
     "MusicFusionAI": {
       "archived": false,
+      "counts": {
+        "assets": 1,
+        "open_issues": 0,
+        "releases": 1
+      },
       "created_at": "2026-09-05",
       "default_branch": "main",
       "description": "MusicFusion v14 AI add-on module (中英双语) - Local LLM + 5 AI tasks + multi-source lyrics + Android Auto + Wear OS",
       "forks": 0,
       "has_license": true,
+      "has_pages": false,
       "homepage": "",
       "kind": "android",
       "language": "Java",
       "latest": {
         "asset": {
           "digest": "sha256:3d05a2acc1ffb4833a1b7ac38ff3d839b8d752098988ee11bd31520d75697057",
-          "downloads": 94,
+          "downloads": 100,
           "name": "musicfusion-ai.apk",
           "size": 41387,
           "url": "https://github.com/ice-wocker/MusicFusionAI/releases/download/v14.0.0/musicfusion-ai.apk"
@@ -679,7 +715,7 @@
         "assets": [
           {
             "digest": "sha256:3d05a2acc1ffb4833a1b7ac38ff3d839b8d752098988ee11bd31520d75697057",
-            "downloads": 94,
+            "downloads": 100,
             "name": "musicfusion-ai.apk",
             "size": 41387,
             "url": "https://github.com/ice-wocker/MusicFusionAI/releases/download/v14.0.0/musicfusion-ai.apk"
@@ -697,7 +733,7 @@
           "assets": [
             {
               "digest": "sha256:3d05a2acc1ffb4833a1b7ac38ff3d839b8d752098988ee11bd31520d75697057",
-              "downloads": 94,
+              "downloads": 100,
               "name": "musicfusion-ai.apk",
               "size": 41387,
               "url": "https://github.com/ice-wocker/MusicFusionAI/releases/download/v14.0.0/musicfusion-ai.apk"
@@ -729,18 +765,24 @@
     },
     "droid-mcp": {
       "archived": false,
+      "counts": {
+        "assets": 3,
+        "open_issues": 0,
+        "releases": 4
+      },
       "created_at": "2026-10-04",
       "default_branch": "main",
       "description": "Your Android phone as MCP tools — SMS, battery, clipboard, notifications, screenshots for any AI agent. One stdlib-only Python file, 100% on-device ｜ 安卓手机变 MCP 工具",
       "forks": 0,
       "has_license": true,
+      "has_pages": false,
       "homepage": "",
       "kind": "android",
       "language": "Python",
       "latest": {
         "asset": {
           "digest": "sha256:e92bf8dff8d6d7e00a97f5fd4212c00d7b106ad507958be47e25ad821201b887",
-          "downloads": 1,
+          "downloads": 7,
           "name": "droid-mcp-companion-v0.3.1-debug.apk",
           "size": 31927,
           "url": "https://github.com/ice-wocker/droid-mcp/releases/download/v0.3.1/droid-mcp-companion-v0.3.1-debug.apk"
@@ -748,7 +790,7 @@
         "assets": [
           {
             "digest": "sha256:e92bf8dff8d6d7e00a97f5fd4212c00d7b106ad507958be47e25ad821201b887",
-            "downloads": 1,
+            "downloads": 7,
             "name": "droid-mcp-companion-v0.3.1-debug.apk",
             "size": 31927,
             "url": "https://github.com/ice-wocker/droid-mcp/releases/download/v0.3.1/droid-mcp-companion-v0.3.1-debug.apk"
@@ -766,7 +808,7 @@
           "assets": [
             {
               "digest": "sha256:e92bf8dff8d6d7e00a97f5fd4212c00d7b106ad507958be47e25ad821201b887",
-              "downloads": 1,
+              "downloads": 7,
               "name": "droid-mcp-companion-v0.3.1-debug.apk",
               "size": 31927,
               "url": "https://github.com/ice-wocker/droid-mcp/releases/download/v0.3.1/droid-mcp-companion-v0.3.1-debug.apk"
@@ -837,11 +879,17 @@
     },
     "frontier-knowledge-base": {
       "archived": false,
+      "counts": {
+        "assets": 1,
+        "open_issues": 2,
+        "releases": 1
+      },
       "created_at": "2026-09-26",
       "default_branch": "main",
       "description": "前沿科技知识库：覆盖 AI、硬件半导体、软件工程、数据工程、网络安全、基础科学、新兴科技、产业与社会，163 篇专题文档，全部基于公开网络资料并逐条附来源链接",
       "forks": 0,
       "has_license": true,
+      "has_pages": true,
       "homepage": "https://ice-wocker.github.io/frontier-knowledge-base/",
       "kind": "code",
       "language": "Python",
@@ -903,18 +951,24 @@
     },
     "iceBrowser": {
       "archived": false,
+      "counts": {
+        "assets": 1,
+        "open_issues": 0,
+        "releases": 1
+      },
       "created_at": "2026-08-30",
       "default_branch": "main",
       "description": "Pure Java Android browser. 164KB APK (vs 30MB+ avg), 0 dependencies. 4 search engines, ad blocker, reader mode, true multi-tab. Single dex, MIT license.",
       "forks": 0,
       "has_license": true,
+      "has_pages": false,
       "homepage": "",
       "kind": "android",
       "language": "Java",
       "latest": {
         "asset": {
           "digest": "sha256:f0ed7b80f829a8d9dd5b89f6551446ff93a96ecfcab3bf02cc197eeac5fe8c5a",
-          "downloads": 130,
+          "downloads": 136,
           "name": "icebrowser.apk",
           "size": 168531,
           "url": "https://github.com/ice-wocker/iceBrowser/releases/download/v5.0.1/icebrowser.apk"
@@ -922,7 +976,7 @@
         "assets": [
           {
             "digest": "sha256:f0ed7b80f829a8d9dd5b89f6551446ff93a96ecfcab3bf02cc197eeac5fe8c5a",
-            "downloads": 130,
+            "downloads": 136,
             "name": "icebrowser.apk",
             "size": 168531,
             "url": "https://github.com/ice-wocker/iceBrowser/releases/download/v5.0.1/icebrowser.apk"
@@ -940,7 +994,7 @@
           "assets": [
             {
               "digest": "sha256:f0ed7b80f829a8d9dd5b89f6551446ff93a96ecfcab3bf02cc197eeac5fe8c5a",
-              "downloads": 130,
+              "downloads": 136,
               "name": "icebrowser.apk",
               "size": 168531,
               "url": "https://github.com/ice-wocker/iceBrowser/releases/download/v5.0.1/icebrowser.apk"
@@ -972,11 +1026,17 @@
     },
     "iceLLM": {
       "archived": false,
+      "counts": {
+        "assets": 0,
+        "open_issues": 0,
+        "releases": 1
+      },
       "created_at": "2026-09-25",
       "default_branch": "main",
       "description": "Turn your Android phone into an OpenAI-compatible local AI server — one command. | 一行命令把安卓手机变成 OpenAI 兼容的本地 AI 服务器",
       "forks": 0,
       "has_license": true,
+      "has_pages": false,
       "homepage": "",
       "kind": "code",
       "language": "Shell",
@@ -1018,11 +1078,17 @@
     },
     "iceProxy": {
       "archived": false,
+      "counts": {
+        "assets": 0,
+        "open_issues": 0,
+        "releases": 1
+      },
       "created_at": "2026-08-30",
       "default_branch": "main",
       "description": "OpenAI-compatible API for 20 free AI models across 7 providers (Pollinations, Qwen, Gemini, GLM, Cerebras, Groq, OpenRouter) - Cloudflare Workers. Multi-account rotation, OAuth, OpenAI protocol. Drop-in replacement.",
       "forks": 0,
       "has_license": true,
+      "has_pages": false,
       "homepage": "",
       "kind": "code",
       "language": "JavaScript",
@@ -1067,18 +1133,24 @@
     },
     "iceReading": {
       "archived": false,
+      "counts": {
+        "assets": 1,
+        "open_issues": 1,
+        "releases": 1
+      },
       "created_at": "2026-08-29",
       "default_branch": "main",
       "description": "Pure Java Android EPUB reader. 0 dependencies, single dex, APK < 100KB. Local-only, zero cloud sync, zero tracking, zero ads. OPDS discovery, reader mode, 4 themes.",
       "forks": 0,
       "has_license": true,
+      "has_pages": false,
       "homepage": "",
       "kind": "android",
       "language": "Java",
       "latest": {
         "asset": {
           "digest": "sha256:4f73e2e02238f658a79d43f0171302981b93c4f2fe8b90628b0ea8d9a4a153de",
-          "downloads": 85,
+          "downloads": 91,
           "name": "icereading.apk",
           "size": 100085,
           "url": "https://github.com/ice-wocker/iceReading/releases/download/v1.0.0/icereading.apk"
@@ -1086,7 +1158,7 @@
         "assets": [
           {
             "digest": "sha256:4f73e2e02238f658a79d43f0171302981b93c4f2fe8b90628b0ea8d9a4a153de",
-            "downloads": 85,
+            "downloads": 91,
             "name": "icereading.apk",
             "size": 100085,
             "url": "https://github.com/ice-wocker/iceReading/releases/download/v1.0.0/icereading.apk"
@@ -1104,7 +1176,7 @@
           "assets": [
             {
               "digest": "sha256:4f73e2e02238f658a79d43f0171302981b93c4f2fe8b90628b0ea8d9a4a153de",
-              "downloads": 85,
+              "downloads": 91,
               "name": "icereading.apk",
               "size": 100085,
               "url": "https://github.com/ice-wocker/iceReading/releases/download/v1.0.0/icereading.apk"
@@ -1136,18 +1208,24 @@
     },
     "iceScan": {
       "archived": false,
+      "counts": {
+        "assets": 1,
+        "open_issues": 4,
+        "releases": 1
+      },
       "created_at": "2026-09-28",
       "default_branch": "main",
       "description": "离线文档扫描：拍一张自动找边、透视拉直、去阴影，多页合成 PDF。零第三方依赖、零权限、不联网的 Android App",
       "forks": 0,
       "has_license": true,
+      "has_pages": false,
       "homepage": "",
       "kind": "android",
       "language": "Java",
       "latest": {
         "asset": {
           "digest": "sha256:8e0aa2b651894454727e1d79329bfb8868c176b1c81e0a69879ce616dff6f628",
-          "downloads": 87,
+          "downloads": 93,
           "name": "iceScan-0.1.0.apk",
           "size": 71620,
           "url": "https://github.com/ice-wocker/iceScan/releases/download/v0.1.0/iceScan-0.1.0.apk"
@@ -1155,7 +1233,7 @@
         "assets": [
           {
             "digest": "sha256:8e0aa2b651894454727e1d79329bfb8868c176b1c81e0a69879ce616dff6f628",
-            "downloads": 87,
+            "downloads": 93,
             "name": "iceScan-0.1.0.apk",
             "size": 71620,
             "url": "https://github.com/ice-wocker/iceScan/releases/download/v0.1.0/iceScan-0.1.0.apk"
@@ -1173,7 +1251,7 @@
           "assets": [
             {
               "digest": "sha256:8e0aa2b651894454727e1d79329bfb8868c176b1c81e0a69879ce616dff6f628",
-              "downloads": 87,
+              "downloads": 93,
               "name": "iceScan-0.1.0.apk",
               "size": 71620,
               "url": "https://github.com/ice-wocker/iceScan/releases/download/v0.1.0/iceScan-0.1.0.apk"
@@ -1204,18 +1282,24 @@
     },
     "iceScribe": {
       "archived": false,
+      "counts": {
+        "assets": 2,
+        "open_issues": 5,
+        "releases": 2
+      },
       "created_at": "2026-09-27",
       "default_branch": "main",
       "description": "离线语音转写 Android App：内置 whisper.cpp，全程本机推理，不申请 INTERNET 权限",
       "forks": 0,
       "has_license": true,
+      "has_pages": false,
       "homepage": "",
       "kind": "android",
       "language": "Java",
       "latest": {
         "asset": {
           "digest": "sha256:0db1ec62076a2bdc6eb0c484fb17d04cc506cca33cae2b0f0c1cd1d0bdc8c962",
-          "downloads": 125,
+          "downloads": 131,
           "name": "iceScribe-0.1.1.apk",
           "size": 61130620,
           "url": "https://github.com/ice-wocker/iceScribe/releases/download/v0.1.1/iceScribe-0.1.1.apk"
@@ -1223,7 +1307,7 @@
         "assets": [
           {
             "digest": "sha256:0db1ec62076a2bdc6eb0c484fb17d04cc506cca33cae2b0f0c1cd1d0bdc8c962",
-            "downloads": 125,
+            "downloads": 131,
             "name": "iceScribe-0.1.1.apk",
             "size": 61130620,
             "url": "https://github.com/ice-wocker/iceScribe/releases/download/v0.1.1/iceScribe-0.1.1.apk"
@@ -1241,7 +1325,7 @@
           "assets": [
             {
               "digest": "sha256:0db1ec62076a2bdc6eb0c484fb17d04cc506cca33cae2b0f0c1cd1d0bdc8c962",
-              "downloads": 125,
+              "downloads": 131,
               "name": "iceScribe-0.1.1.apk",
               "size": 61130620,
               "url": "https://github.com/ice-wocker/iceScribe/releases/download/v0.1.1/iceScribe-0.1.1.apk"
@@ -1289,20 +1373,26 @@
     },
     "icesuite": {
       "archived": false,
+      "counts": {
+        "assets": 0,
+        "open_issues": 0,
+        "releases": 0
+      },
       "created_at": "2026-09-29",
       "default_branch": "main",
       "description": "零依赖作品集站点 + 应用商店：Python 标准库渲染纯静态站，一键下齐全部 APK。可 Fork 改成你自己的。",
       "forks": 0,
       "has_license": true,
+      "has_pages": true,
       "homepage": "https://ice-wocker.github.io/icesuite/",
       "kind": "code",
-      "language": "Python",
+      "language": "Java",
       "latest": null,
       "pushed_at": "2026-11-03",
       "releases": [],
       "repo": "icesuite",
       "repo_url": "https://github.com/ice-wocker/icesuite",
-      "size_kb": 210,
+      "size_kb": 307,
       "stars": 2,
       "topics": [
         "app-store",
@@ -1319,11 +1409,17 @@
     },
     "impeccable-mini": {
       "archived": false,
+      "counts": {
+        "assets": 0,
+        "open_issues": 0,
+        "releases": 0
+      },
       "created_at": "2026-10-04",
       "default_branch": "main",
       "description": "",
       "forks": 0,
       "has_license": false,
+      "has_pages": false,
       "homepage": "",
       "kind": "code",
       "language": "Python",
@@ -1338,11 +1434,17 @@
     },
     "kaggle": {
       "archived": false,
+      "counts": {
+        "assets": 0,
+        "open_issues": 0,
+        "releases": 0
+      },
       "created_at": "2026-10-26",
       "default_branch": "main",
       "description": "Kaggle 免费 GPU 跑 Qwen-Image-2.1-Uncensored INT8 · 站点与文档",
       "forks": 0,
       "has_license": false,
+      "has_pages": true,
       "homepage": "",
       "kind": "code",
       "language": "Java",
@@ -1357,11 +1459,17 @@
     },
     "mini-code": {
       "archived": false,
+      "counts": {
+        "assets": 0,
+        "open_issues": 0,
+        "releases": 1
+      },
       "created_at": "2026-10-04",
       "default_branch": "main",
       "description": "mini Claude Code for the terminal · Node.js + Ink · works with any OpenAI-compatible API (OpenAI/Ollama/proxies) ｜ 迷你版 Claude Code 终端助手",
       "forks": 0,
       "has_license": true,
+      "has_pages": false,
       "homepage": "",
       "kind": "code",
       "language": "JavaScript",
@@ -1398,71 +1506,19 @@
         "terminal"
       ]
     },
-    "npu-chat": {
-      "archived": false,
-      "created_at": "2026-11-02",
-      "default_branch": "main",
-      "description": "Android on-device LLM chat: 135M int4 model built in, 88MB weights, no network permission. QNN/NeuroPilot/NNAPI/CPU tiered fallback.",
-      "forks": 0,
-      "has_license": true,
-      "homepage": "",
-      "kind": "android",
-      "language": "Java",
-      "latest": {
-        "asset": {
-          "digest": "sha256:788d0aa90246f1aae3c945943bcfefa3d09dc84d2697627dab57b22d15223913",
-          "downloads": 4,
-          "name": "npuchat-0.1.0-arm64.apk",
-          "size": 99025367,
-          "url": "https://github.com/ice-wocker/npu-chat/releases/download/v0.1.0/npuchat-0.1.0-arm64.apk"
-        },
-        "assets": [
-          {
-            "digest": "sha256:788d0aa90246f1aae3c945943bcfefa3d09dc84d2697627dab57b22d15223913",
-            "downloads": 4,
-            "name": "npuchat-0.1.0-arm64.apk",
-            "size": 99025367,
-            "url": "https://github.com/ice-wocker/npu-chat/releases/download/v0.1.0/npuchat-0.1.0-arm64.apk"
-          }
-        ],
-        "body": "内置 SmolLM2-135M-Instruct（int4，88MB），装完就能聊，无网络权限。\n\n## 这个包能做什么\n\n- 启动页读出芯片画像、可用内存、上下文规划\n- 对话页流式输出，状态条如实显示后端（NPU 未对接时会写「未加速，走参考实现」）\n- CPU 参考路径完整可用，135M int4 约 12 tok/s\n\n## 已知短板（别当成完整功能）\n\n- **GPU：没有实现**。后端只有 QNN_HTP / NEUROPILOT / NNAPI / CPU\n- **NPU 只到探测层**：dlopen 探测与降级链路能跑，图执行需要厂商 NDK + 真机\n- **没在真机上跑过**：构建与数值验证都在 x86 Linux 完成\n\n## 校验\n\n- 54 个单测全绿\n- int4 权重反量化后跑真实前向，输出 \"Hello! How can I assist you today\"\n- C++ 与 NumPy 参考实现逐位对齐（argmax 相同，logits 误差 1e-5）\n- arm64-v8a only，minSdk 27",
-        "name": "v0.1.0 · 首个可装包",
-        "prerelease": true,
-        "published_at": "2026-11-02",
-        "tag": "v0.1.0"
-      },
-      "pushed_at": "2026-11-03",
-      "releases": [
-        {
-          "assets": [
-            {
-              "digest": "sha256:788d0aa90246f1aae3c945943bcfefa3d09dc84d2697627dab57b22d15223913",
-              "downloads": 4,
-              "name": "npuchat-0.1.0-arm64.apk",
-              "size": 99025367,
-              "url": "https://github.com/ice-wocker/npu-chat/releases/download/v0.1.0/npuchat-0.1.0-arm64.apk"
-            }
-          ],
-          "body": "内置 SmolLM2-135M-Instruct（int4，88MB），装完就能聊，无网络权限。\n\n## 这个包能做什么\n\n- 启动页读出芯片画像、可用内存、上下文规划\n- 对话页流式输出，状态条如实显示后端（NPU 未对接时会写「未加速，走参考实现」）\n- CPU 参考路径完整可用，135M int4 约 12 tok/s\n\n## 已知短板（别当成完整功能）\n\n- **GPU：没有实现**。后端只有 QNN_HTP / NEUROPILOT / NNAPI / CPU\n- **NPU 只到探测层**：dlopen 探测与降级链路能跑，图执行需要厂商 NDK + 真机\n- **没在真机上跑过**：构建与数值验证都在 x86 Linux 完成\n\n## 校验\n\n- 54 个单测全绿\n- int4 权重反量化后跑真实前向，输出 \"Hello! How can I assist you today\"\n- C++ 与 NumPy 参考实现逐位对齐（argmax 相同，logits 误差 1e-5）\n- arm64-v8a only，minSdk 27",
-          "name": "v0.1.0 · 首个可装包",
-          "prerelease": true,
-          "published_at": "2026-11-02",
-          "tag": "v0.1.0"
-        }
-      ],
-      "repo": "npu-chat",
-      "repo_url": "https://github.com/ice-wocker/npu-chat",
-      "size_kb": 34332,
-      "stars": 1,
-      "topics": []
-    },
     "nvidia-engineer-pro": {
       "archived": false,
+      "counts": {
+        "assets": 0,
+        "open_issues": 0,
+        "releases": 0
+      },
       "created_at": "2026-10-11",
       "default_branch": "main",
       "description": "NVIDIA ENGINEER PRO v7.0.0 — terminal AI coding agent · one stdlib-only Python file · 46 tools, streaming, parallel reads, shadow-git checkpoints ｜ 终端 AI 编程助手",
       "forks": 0,
       "has_license": true,
+      "has_pages": false,
       "homepage": "",
       "kind": "code",
       "language": "Python",
@@ -1477,11 +1533,17 @@
     },
     "spark-distill-1b": {
       "archived": false,
+      "counts": {
+        "assets": 6,
+        "open_issues": 0,
+        "releases": 3
+      },
       "created_at": "2026-10-04",
       "default_branch": "main",
       "description": "Distill Muse Spark into MiniCPM5-1B: 780 pairs + free-GPU QLoRA pipeline, exports to GGUF for phones ｜ 把 Muse Spark 蒸馏进 MiniCPM5-1B",
       "forks": 0,
       "has_license": true,
+      "has_pages": false,
       "homepage": "",
       "kind": "code",
       "language": "Python",
@@ -1604,11 +1666,17 @@
     },
     "xstech-terminal": {
       "archived": false,
+      "counts": {
+        "assets": 0,
+        "open_issues": 0,
+        "releases": 1
+      },
       "created_at": "2026-09-30",
       "default_branch": "main",
       "description": "把 xstech.one 的网页端能力包装成 OpenAI 兼容端点 —— 改个 base_url，就能在终端 / CLI / IDE 里直接用它",
       "forks": 0,
       "has_license": true,
+      "has_pages": false,
       "homepage": "https://github.com/ice-wocker/xstech-terminal",
       "kind": "code",
       "language": "Python",
@@ -1650,5 +1718,5 @@
       ]
     }
   },
-  "schema": 3
+  "schema": 4
 }
