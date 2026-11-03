@@ -129,7 +129,9 @@ def stats(model: dict) -> dict:
             tags[t] = tags.get(t, 0) + 1
 
     newest = max((p["published_at"] for p in projects if p["published_at"]), default="")
-    oldest = min((p["created_at"] for p in projects if p["created_at"]), default="")
+    # 建仓日期可能整列为空：sync.py 加字段之前生成的快照里就没有这一列。
+    # 空则输出空串，页面按「算不出」处理 —— 不要为了页面上好看而猜一个日期。
+    oldest = min((p.get("created_at") for p in projects if p.get("created_at")), default="")
 
     return {
         "generated_at": model.get("generated_at") or "",
