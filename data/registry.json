@@ -1,6 +1,6 @@
 {
   "_note": "由 scripts/sync.py 从 GitHub API 生成，请勿手改。构建时只读本文件，不联网。",
-  "generated_at": "2026-11-03T11:24:22Z",
+  "generated_at": "2026-11-03T11:35:02Z",
   "owner": "ice-wocker",
   "projects": {
     "GunFire": {
@@ -286,7 +286,7 @@
       "latest": {
         "asset": {
           "digest": "sha256:0eb572a8a7f57f8f5d09393bae8e3fb130de0a0f94140a7908bef118b9628de1",
-          "downloads": 99,
+          "downloads": 100,
           "name": "KayaGo-1.2.0.apk",
           "size": 70972,
           "url": "https://github.com/ice-wocker/KayaGo/releases/download/v1.2.0/KayaGo-1.2.0.apk"
@@ -294,7 +294,7 @@
         "assets": [
           {
             "digest": "sha256:0eb572a8a7f57f8f5d09393bae8e3fb130de0a0f94140a7908bef118b9628de1",
-            "downloads": 99,
+            "downloads": 100,
             "name": "KayaGo-1.2.0.apk",
             "size": 70972,
             "url": "https://github.com/ice-wocker/KayaGo/releases/download/v1.2.0/KayaGo-1.2.0.apk"
@@ -312,7 +312,7 @@
           "assets": [
             {
               "digest": "sha256:0eb572a8a7f57f8f5d09393bae8e3fb130de0a0f94140a7908bef118b9628de1",
-              "downloads": 99,
+              "downloads": 100,
               "name": "KayaGo-1.2.0.apk",
               "size": 70972,
               "url": "https://github.com/ice-wocker/KayaGo/releases/download/v1.2.0/KayaGo-1.2.0.apk"
@@ -445,7 +445,7 @@
           "assets": [
             {
               "digest": "sha256:eebc1ef29427366c2e1991681b45a09fd53d1ac97398e4b91771fba63d895ed2",
-              "downloads": 10,
+              "downloads": 11,
               "name": "ModelScope-Models-2.6.0.apk",
               "size": 8357793,
               "url": "https://github.com/ice-wocker/ModelScopeBrowser/releases/download/v2.6.0/ModelScope-Models-2.6.0.apk"
@@ -601,7 +601,7 @@
       "latest": {
         "asset": {
           "digest": "sha256:122512ad15ffafc50d2962b0b2e95028f66b547c93fc5396e2199e2f47cf3fd8",
-          "downloads": 93,
+          "downloads": 94,
           "name": "musicfusion.apk",
           "size": 288715,
           "url": "https://github.com/ice-wocker/MusicFusion/releases/download/v13/musicfusion.apk"
@@ -609,7 +609,7 @@
         "assets": [
           {
             "digest": "sha256:122512ad15ffafc50d2962b0b2e95028f66b547c93fc5396e2199e2f47cf3fd8",
-            "downloads": 93,
+            "downloads": 94,
             "name": "musicfusion.apk",
             "size": 288715,
             "url": "https://github.com/ice-wocker/MusicFusion/releases/download/v13/musicfusion.apk"
@@ -627,7 +627,7 @@
           "assets": [
             {
               "digest": "sha256:122512ad15ffafc50d2962b0b2e95028f66b547c93fc5396e2199e2f47cf3fd8",
-              "downloads": 93,
+              "downloads": 94,
               "name": "musicfusion.apk",
               "size": 288715,
               "url": "https://github.com/ice-wocker/MusicFusion/releases/download/v13/musicfusion.apk"
@@ -914,7 +914,7 @@
       "latest": {
         "asset": {
           "digest": "sha256:f0ed7b80f829a8d9dd5b89f6551446ff93a96ecfcab3bf02cc197eeac5fe8c5a",
-          "downloads": 129,
+          "downloads": 130,
           "name": "icebrowser.apk",
           "size": 168531,
           "url": "https://github.com/ice-wocker/iceBrowser/releases/download/v5.0.1/icebrowser.apk"
@@ -922,7 +922,7 @@
         "assets": [
           {
             "digest": "sha256:f0ed7b80f829a8d9dd5b89f6551446ff93a96ecfcab3bf02cc197eeac5fe8c5a",
-            "downloads": 129,
+            "downloads": 130,
             "name": "icebrowser.apk",
             "size": 168531,
             "url": "https://github.com/ice-wocker/iceBrowser/releases/download/v5.0.1/icebrowser.apk"
@@ -940,7 +940,7 @@
           "assets": [
             {
               "digest": "sha256:f0ed7b80f829a8d9dd5b89f6551446ff93a96ecfcab3bf02cc197eeac5fe8c5a",
-              "downloads": 129,
+              "downloads": 130,
               "name": "icebrowser.apk",
               "size": 168531,
               "url": "https://github.com/ice-wocker/iceBrowser/releases/download/v5.0.1/icebrowser.apk"
@@ -1078,7 +1078,7 @@
       "latest": {
         "asset": {
           "digest": "sha256:4f73e2e02238f658a79d43f0171302981b93c4f2fe8b90628b0ea8d9a4a153de",
-          "downloads": 84,
+          "downloads": 85,
           "name": "icereading.apk",
           "size": 100085,
           "url": "https://github.com/ice-wocker/iceReading/releases/download/v1.0.0/icereading.apk"
@@ -1086,7 +1086,7 @@
         "assets": [
           {
             "digest": "sha256:4f73e2e02238f658a79d43f0171302981b93c4f2fe8b90628b0ea8d9a4a153de",
-            "downloads": 84,
+            "downloads": 85,
             "name": "icereading.apk",
             "size": 100085,
             "url": "https://github.com/ice-wocker/iceReading/releases/download/v1.0.0/icereading.apk"
@@ -1104,7 +1104,7 @@
           "assets": [
             {
               "digest": "sha256:4f73e2e02238f658a79d43f0171302981b93c4f2fe8b90628b0ea8d9a4a153de",
-              "downloads": 84,
+              "downloads": 85,
               "name": "icereading.apk",
               "size": 100085,
               "url": "https://github.com/ice-wocker/iceReading/releases/download/v1.0.0/icereading.apk"
@@ -1147,7 +1147,7 @@
       "latest": {
         "asset": {
           "digest": "sha256:8e0aa2b651894454727e1d79329bfb8868c176b1c81e0a69879ce616dff6f628",
-          "downloads": 86,
+          "downloads": 87,
           "name": "iceScan-0.1.0.apk",
           "size": 71620,
           "url": "https://github.com/ice-wocker/iceScan/releases/download/v0.1.0/iceScan-0.1.0.apk"
@@ -1155,7 +1155,7 @@
         "assets": [
           {
             "digest": "sha256:8e0aa2b651894454727e1d79329bfb8868c176b1c81e0a69879ce616dff6f628",
-            "downloads": 86,
+            "downloads": 87,
             "name": "iceScan-0.1.0.apk",
             "size": 71620,
             "url": "https://github.com/ice-wocker/iceScan/releases/download/v0.1.0/iceScan-0.1.0.apk"
@@ -1173,7 +1173,7 @@
           "assets": [
             {
               "digest": "sha256:8e0aa2b651894454727e1d79329bfb8868c176b1c81e0a69879ce616dff6f628",
-              "downloads": 86,
+              "downloads": 87,
               "name": "iceScan-0.1.0.apk",
               "size": 71620,
               "url": "https://github.com/ice-wocker/iceScan/releases/download/v0.1.0/iceScan-0.1.0.apk"
@@ -1298,7 +1298,7 @@
       "kind": "code",
       "language": "Python",
       "latest": null,
-      "pushed_at": "2026-11-01",
+      "pushed_at": "2026-11-03",
       "releases": [],
       "repo": "icesuite",
       "repo_url": "https://github.com/ice-wocker/icesuite",
