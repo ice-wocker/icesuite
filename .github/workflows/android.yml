@@ -96,7 +96,7 @@ jobs:
       # native 构建（llama.cpp + ggml 多档后端）是这个仓库最慢的一步，
       # 缓存 CMake 产物目录能把二次构建从 ~40 分钟压到几分钟。
       - name: Cache CMake/native build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             app/.cxx
