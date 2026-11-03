@@ -22,10 +22,12 @@ on:
     - cron: '17 * * * *'
   repository_dispatch:
     types: [release, sync]
-  # 没有 push 触发时，push 事件会产生一次「一个 job 都没有」的空运行：
-  # GitHub 用旧版 workflow 求值了这个事件，结论直接是 failure，
-  # 而 jobs 列表为空、日志 404 —— 一条查不出原因的红线。
-  # 加上 push 之后，那次事件要么正常跑，要么根本不会出现。
+  # 手动 / 定时 / webhook 之外的第四种触发：sync.py 本身改了也要立刻验一次，
+  # 否则新逻辑要等下一个整点才跑第一次。限定路径，避免无关提交也去拉 API。
+  #
+  # 顺带记录一个坑：第一次推这个文件时曾出现一次「结论 failure、jobs 列表为空、
+  # 日志 404」的 run —— 那是推送瞬间 GitHub 用旧版 workflow 求值 push 事件的产物，
+  # 与 workflow 内容无关，之后不会再出现。
   push:
     branches: [ main ]
     paths:
