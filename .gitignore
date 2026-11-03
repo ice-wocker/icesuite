@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Gradle
 .gradle/
 build/
@@ -32,9 +31,5 @@ Thumbs.db
 site/
 
 # Python
-=======
-# 站点是构建产物，不入库——只有 data/ 与 scripts/ 是真相源
-site/
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
 __pycache__/
 *.pyc

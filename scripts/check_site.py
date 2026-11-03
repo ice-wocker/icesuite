@@ -24,13 +24,10 @@ SITE_DIR = ROOT / "site"
 UA = {"User-Agent": "ice-suite-link-check/1.0"}
 
 
-<<<<<<< HEAD
 def esc_title(t):
     return re.sub(r"\s+", " ", t).strip()
 
 
-=======
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
 def load_registry():
     """读 sync.py 生成的快照。缺失时返回空字典，让「新增快照」这类检查报错。"""
     f = ROOT / "data" / "registry.json"
@@ -40,7 +37,6 @@ def load_registry():
 
 
 def project_meta():
-<<<<<<< HEAD
     """「站点认为有哪些项目」。
 
     以前这里通过 importlib 执行整个 build_site.py、只为了拿一个 list ——
@@ -52,15 +48,6 @@ def project_meta():
     sys.path.insert(0, str(ROOT / "scripts"))
     import overlay
     return overlay.load()["projects"]
-=======
-    """从构建脚本里拿「站点认为有哪些项目」。不重复实现合并逻辑。"""
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("build_site", ROOT / "scripts" / "build_site.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    _, _, projects, _ = mod.load()
-    return projects
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
 
 
 def flat_releases(registry):
@@ -109,13 +96,10 @@ def head(url, timeout=20, retries=2):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--skip-links", action="store_true", help="只做本地结构检查")
-<<<<<<< HEAD
     ap.add_argument("--no-js", action="store_true",
                     help="跳过内联 JS 语法检查（没有 node 的机器用）")
     ap.add_argument("--reproducible", action="store_true",
                     help="额外跑一次构建，逐字节比对产物是否可复现（慢）")
-=======
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
     args = ap.parse_args()
 
     ns = {}
@@ -132,15 +116,11 @@ def main():
 
     # --- 1. 产物结构 ---
     for f in ("index.html", "style.css", "search.json", "CNAME", "404.html", "store.html",
-<<<<<<< HEAD
               "tags.html", "sitemap.xml", "robots.txt", "feed.xml", "icon.svg",
               # v3 新增：五张页面 + 三个机器可读产物 + PWA 三件套
               "latest.html", "timeline.html", "compare.html", "collections.html", "stats.html",
               "stats.json", "graph.json", "content.json", "manifest.json", "sw.js",
               "icon-maskable.svg"):
-=======
-              "tags.html", "sitemap.xml", "robots.txt", "feed.xml", "icon.svg"):
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
         if not (SITE_DIR / f).exists():
             errors.append(f"缺少产物 {f}")
     if (SITE_DIR / "CNAME").exists():
@@ -598,7 +578,6 @@ def main():
             rel = releases.get(repo) or {}
             if app.get("version") != rel.get("tag"):
                 errors.append(f"update.json 里 {repo} 版本 {app.get('version')} != 快照 {rel.get('tag')}")
-<<<<<<< HEAD
         # verify 是「这份清单有多少条能被验证」的自述。它必须与 apps 实际内容对得上，
         # 否则客户端会拿一个骗人的覆盖率去做「要不要提示校验失败」的判断。
         v = up.get("verify") or {}
@@ -847,8 +826,6 @@ def main():
         if r.returncode != 0:
             errors.append((r.stdout + r.stderr).strip().splitlines()[-1] if r.stdout.strip()
                           else "内联 JS 语法检查失败")
-=======
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
 
     # --- 4. 外链可达性 ---
     checked = 0
@@ -875,7 +852,6 @@ def main():
     idx = json.loads((SITE_DIR / "search.json").read_text(encoding="utf-8"))
     if len(idx) != len(projects):
         errors.append(f"search.json 条目数 {len(idx)} != 项目数 {len(projects)}")
-<<<<<<< HEAD
     # 搜索索引里每一条都必须指向真实存在的页面，否则搜索结果就是一个 404
     for row in idx:
         if not (SITE_DIR / row.get("url", "")).exists():
@@ -885,8 +861,6 @@ def main():
     # 「只收标题」的搜索看似能用，实际问题（比如搜「断点续传」）会零结果。
     if idx and not any(row.get("text", "").strip() for row in idx):
         errors.append("search.json 的 text 字段全空（搜索只能命中标题）")
-=======
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
 
     print(f"项目数：{len(projects)}")
     print(f"可安装应用：{len(releases)}")

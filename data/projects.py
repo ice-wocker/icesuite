@@ -55,7 +55,6 @@ GROUPS = [
 
 PROJECTS = [
     # ---------------- 端侧 AI ----------------
-<<<<<<< HEAD
     # 自动收录的仓库也可以用同样的结构补一段人工文案：
     # 只写机器查不到的（pitch / highlights / known_limits），
     # 版本号、体积、sha256 一个字都不要抄 —— 那些由 registry.json 决定，
@@ -94,8 +93,6 @@ PROJECTS = [
                         "首次启动会解包权重，占约 90 MB 存储空间。",
         "store_note": "包体 94 MB 里几乎全是模型权重，代码本身很小。",
     },
-=======
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
     {
         "id": "icescribe",
         "repo": "iceScribe",

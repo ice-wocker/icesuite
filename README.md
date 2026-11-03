@@ -11,21 +11,16 @@
 
 **在线**：<https://ice-wocker.github.io/icesuite/> ·
 **商店**：<https://ice-wocker.github.io/icesuite/store.html> ·
-<<<<<<< HEAD
 **最新更新**：<https://ice-wocker.github.io/icesuite/latest.html> ·
 **时间线**：<https://ice-wocker.github.io/icesuite/timeline.html> ·
 **对比**：<https://ice-wocker.github.io/icesuite/compare.html> ·
 **集合**：<https://ice-wocker.github.io/icesuite/collections.html> ·
 **数据**：<https://ice-wocker.github.io/icesuite/stats.html> ·
-=======
-**标签**：<https://ice-wocker.github.io/icesuite/tags.html> ·
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
 **RSS**：<https://ice-wocker.github.io/icesuite/feed.xml>
 
 > **文档导航**
 > [本文件](README.md)（门面 + 设计取舍） · [架构与数据流](docs/ARCHITECTURE.md) ·
 > [自检与守卫](docs/CHECKS.md) · [部署与域名](docs/DEPLOY.md) ·
-<<<<<<< HEAD
 > [机器可读产物](docs/CONTRACTS.md) · [离线与可安装](docs/PWA.md) ·
 > [数据字典](docs/DATA.md) · [开发指南](docs/DEVELOPING.md) ·
 > [故障排查](docs/TROUBLESHOOTING.md) · [深问答](docs/FAQ.md) ·
@@ -125,54 +120,12 @@ python3 scripts/live_check.py --retries 8 --sample 4
 最后一条最值得说：**变异测试本身也会变成橡皮图章**。所以 `mutate_v2.py` 里所有
 「改页面」的用例都会同步刷新 `content.json` 里那个文件的哈希——否则每条都会先被
 完整性校验抓走，看起来全绿，实际上只是在测同一条断言。
-=======
-> [更新日志](CHANGELOG.md) · [域名切换手册](docs/DNS.md)
-
-这个仓库是 [ice-wocker](https://github.com/ice-wocker) 全部项目的统一入口，
-也是它自己的一个作品——因为它遵守同一套原则：**零第三方依赖、离线可用、体积可验证**。
-
-它有两种用法，取决于你是谁：
-
-- **访客**：直接打开商店页，一键下齐全部 12 个安装包；新版本一小时内自动上站。
-- **开发者**：Fork 下来，改 `data/projects.py` 里的文案，30 秒后得到一个属于你自己的同类站点。
-
-> **这一版最大的变化：站点自己读 GitHub。**
-> 仓库清单、版本号、包名、体积、sha256、发布时间全部自动同步（`scripts/sync.py`），
-> 每小时一次。**新项目不用登记，发新版不用推代码** —— 原来这两件事都要人记得改两个地方，
-> 而两次都真的忘了：商店页挂着 v2.6.0 时线上已经是 v2.7.1。
-
----
-
-## 为什么不用 MkDocs / VitePress
-
-因为它们会给一个「主张零依赖」的账号加上一套会过期的构建链。
-
-这个站的全部需求就是「把结构化数据渲染成 HTML，再放一份搜索索引」——
-Python 标准库足够，产物是纯静态的：克隆下来双击 `index.html` 就能看，换任何托管都不用改代码。
-
-代价是没有插件生态。以下功能都是手写的，因为它们都不需要依赖：
-
-| 能力 | 实现 |
-|---|---|
-| 全站搜索 | 构建时预生成 `search.json`，运行时前端过滤；中文按二元切分，键盘可操作 |
-| 站点图标 | 手写 `icon.svg`，没有引任何素材库 |
-| 死链检查 | `urllib` + 自己实现的重试策略 |
-| 下载加速 | 按地区选源 + 并行建连（不测速、不多线程，见下） |
-| 主题切换 | 三档（跟随系统/浅色/深色），选择存 `localStorage`，首屏无闪烁 |
-| 可被抓取 | `canonical` / `sitemap.xml` / `robots.txt` / RSS / JSON-LD，全部构建时生成 |
-| 标签索引 | 从清单反推，双向校验（不多不少） |
-| 自动发现 | `sync.py` 读 GitHub API → `registry.json`；新仓库/新版本零登记 |
-| 增量清单 | `update.json`：版本 / 体积 / sha256 / 直链，客户端不必解析 HTML |
-| 更新记录 | Release 正文自己就是 changelog，渲染成每个应用的版本史 |
-| 校验安装包 | 详情页给出 `sha256sum` 命令，值取自 Release 资产元数据 |
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
 
 ---
 
 ## 快速开始
 
 ```bash
-<<<<<<< HEAD
 python3 scripts/sync.py             # 从 GitHub 同步仓库与 Release（需 GH_TOKEN；不带则跳过）
 python3 scripts/build_site.py       # 渲染出 site/，不需要装任何东西
 open site/index.html                # 双击就能看，不用起服务
@@ -188,13 +141,6 @@ python3 scripts/live_check.py       # 核对**线上**那份（需要网络）
 ```bash
 python3 -c "import json;print(json.load(open('site/content.json'))['build'])"
 # {'id': '…', 'files': 45, 'bytes': 665364, 'pages': 31}
-=======
-python3 scripts/sync.py           # 从 GitHub 同步仓库与 Release（需 GH_TOKEN；不带则跳过）
-python3 scripts/build_site.py     # 渲染出 site/，不需要装任何东西
-open site/index.html              # 双击就能看，不用起服务
-python3 scripts/check_site.py     # 自检：结构、一致性、外链
-python3 scripts/mutate_test.py    # 守卫自证：注入 15 种缺陷，确认自检会红
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
 ```
 
 ## 加一个项目 / 发一个版本，要做什么
@@ -209,7 +155,6 @@ python3 scripts/mutate_test.py    # 守卫自证：注入 15 种缺陷，确认�
 - **写介绍**：想让它长得不像自动生成，就在 `data/projects.py` 里加一条同 `repo` 的条目，
   只写你想覆盖的字段。版本号之类的别抄，抄了就会过期。
 
-<<<<<<< HEAD
 ---
 
 ## 目录
@@ -235,34 +180,16 @@ scripts/live_check.py   线上核对（部署后跑）
 [部署与域名](docs/DEPLOY.md)、[机器可读产物](docs/CONTRACTS.md)。
 
 ---
-=======
-## 目录
-
-```text
-data/registry.json    自动同步的快照（勿手改）
-data/projects.py      手写叠加层：文案、分组、亮点、已知限制
-data/mirrors.py       下载源与地区判定（手写，镜像站没有可靠信号）
-scripts/sync.py       拉 GitHub → registry.json
-scripts/build_site.py 渲染 site/
-scripts/check_site.py 自检
-scripts/mutate_test.py 变异测试（守卫自证）
-```
-
-详见 [架构与数据流](docs/ARCHITECTURE.md)、[自检与守卫](docs/CHECKS.md)、[部署与域名](docs/DEPLOY.md)。
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
 
 ## 它不做什么
 
 - **不做评论、评分、统计**：要后端、要防滥用、要 GDPR，和「零依赖、无追踪、无 Cookie」直接冲突。
 - **不自动编介绍**：`registry.json` 提供事实，文案要么是人写的，要么是从仓库描述原样取的。
 - **不推算校验值**：拿不到 `sha256` 就是 `null`，不会从版本号猜一个。
-<<<<<<< HEAD
 - **不推算 `versionCode`**：`2.7.1` 不猜成 `2710`。猜错会让用户以为「已是最新」，永远收不到更新。
 - **不假装离线能下载**：离线时能翻站点、能看版本号与 sha256，但 APK 一定下不下来。
   Service Worker 只缓存同源 GET，跨域的 Release 资产不进缓存——冻在缓存里只会让人以为是本站坏了。
 - **不自动刷新页面**：用户可能正在下文件，刷新会把它打断。
-=======
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
 
 ## License
 

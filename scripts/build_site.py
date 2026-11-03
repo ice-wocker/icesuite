@@ -10,15 +10,10 @@
 门面没理由破自己的例。
 """
 import argparse
-<<<<<<< HEAD
-=======
-import hashlib
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
 import html
 import json
 import re
 import shutil
-<<<<<<< HEAD
 import sys
 from pathlib import Path
 
@@ -33,14 +28,6 @@ from util import DATA, ROOT, attr, days_between, esc, human_size, iso_now, rfc82
 
 OUT = ROOT / "site"
 INSTALL_JS = app_assets.INSTALL_JS
-=======
-import time
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parent.parent
-DATA = ROOT / "data"
-OUT = ROOT / "site"
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
 
 GROUPS = [
     ("on-device-ai", "端侧 AI", "把模型塞进手机：本地推理、不上传、不联网也能用"),
@@ -69,7 +56,6 @@ STATUS_LABEL = {
 }
 
 
-<<<<<<< HEAD
 def load():
     """注册表 + 手写叠加层 → 项目清单。
 
@@ -85,195 +71,6 @@ def _registry_generated_at() -> str:
     from util import read_json
     payload = read_json(DATA / "registry.json", {}) or {}
     return payload.get("generated_at") or ""
-=======
-def esc(s):
-    return html.escape(str(s), quote=False)
-
-
-def human_size(n):
-    """把字节数写成人看得懂的样子。用 1024 进制，和系统「应用信息」里的口径一致。"""
-    if not n:
-        return ""
-    if n < 1024:
-        return f"{n} B"
-    if n < 1024 * 1024:
-        kb = n / 1024
-        return f"{kb:.0f} KB" if kb >= 10 else f"{kb:.1f} KB"
-    return f"{n / 1024 / 1024:.1f} MB"
-
-
-def load_mirrors():
-    """读 data/mirrors.py —— 加速候选清单。
-
-    这个文件是**手写**的：镜像站是别人家的服务，
-    没有自动机制能保证它们活着。所以它必须允许「这里就是空的」——
-    一个候选都没有时，前端只是没有加速可开，站点照常构建。
-    """
-    ns = {}
-    f = DATA / "mirrors.py"
-    if not f.exists():
-        return [], {}
-    exec(f.read_text(encoding="utf-8"), ns)
-    mirrors = [m for m in ns.get("MIRRORS", []) if m.get("prefix") is not None]
-    params = {
-        # 默认策略：auto = 先按地区判断该不该加速，再挑第一个可用的加速源。
-        # 刻意没有 probe_bytes / chunks 这类参数——它们是已证伪的 fetch 测速
-        # 与「多线程下载大文件」的残留，留着只会诱导别人重新捡起来。
-        "accel": ns.get("ACCEL_DEFAULT", "auto"),
-        "slow_direct_timezones": list(ns.get("SLOW_DIRECT_TIMEZONES", [])),
-        "slow_direct_langs": list(ns.get("SLOW_DIRECT_LANGS", [])),
-        "slow_direct_regions": list(ns.get("SLOW_DIRECT_REGIONS", [])),
-    }
-    return mirrors, params
-
-
-def load_registry():
-    """读 data/registry.json —— 「GitHub 上真实是什么样」的唯一真相源。
-
-    这个文件由 scripts/sync.py 自动生成：仓库清单、Release、包名、体积、
-    发布时间、语言、话题、线上地址全在里面。**没有任何一项要人登记。**
-    """
-    f = DATA / "registry.json"
-    if not f.exists():
-        return {}
-    payload = json.loads(f.read_text(encoding="utf-8"))
-    return payload.get("projects", {})
-
-
-# 叠加层没写时的兜底分组：按仓库有没有可安装产物 / 有没有 Pages 决定。
-# 新项目上线第一天就有位置，不会因为「还没人给它写文案」而从站点上消失。
-DEFAULT_GROUP = {"android": "apps", "site": "sites", "code": "code"}
-DEFAULT_ICON = {"android": "📱", "site": "🌐", "code": "🧩"}
-
-
-def derive(reg, site):
-    """从注册表的一条记录派生出项目卡片需要的全部字段。
-
-    这里的原则是：**机器能查到的绝不手写，查不到的绝不编。**
-    """
-    latest = reg.get("latest") or {}
-    asset = latest.get("asset") or {}
-    name = reg["repo"]
-    kind = reg.get("kind") or "code"
-    return {
-        "id": name.lower(),
-        "repo": name,
-        "name": name,
-        "group": DEFAULT_GROUP.get(kind, "code"),
-        "icon": DEFAULT_ICON.get(kind, "🧩"),
-        "pitch": reg.get("description") or name,
-        "summary": reg.get("description") or f"{name}（GitHub 上没有填描述）",
-        "tags": list(reg.get("topics") or []),
-        "metrics": [],
-        # 自动收录的项目没有人工写的亮点。与其留一个空标题，
-        # 不如把 GitHub 上真实可查的事实当成亮点列出来——它们本来就是读者想知道的。
-        "highlights": [],
-        "tech": [t for t in [reg.get("language")] if t],
-        "known_limits": [],
-        "store_note": "",
-        "installation": "",
-        "status": "mature" if (reg.get("releases") or []) else "beta",
-        "platform": kind if kind == "android" else None,
-        "external_url": reg.get("homepage") or "",
-        "external_label": "打开线上站点" if kind == "site" else "项目主页",
-        "version": latest.get("tag") or "",
-        "published_at": latest.get("published_at") or "",
-        "size_bytes": asset.get("size") or 0,
-        "size_text": human_size(asset.get("size")),
-        "downloads": asset.get("downloads") or 0,
-        "asset_name": asset.get("name") or "",
-        "asset_sha256": (asset.get("digest") or "").replace("sha256:", ""),
-        "dl_release": asset.get("url") or "",
-        "prerelease": bool(latest.get("prerelease")),
-        "history": [{"tag": r["tag"], "published_at": r["published_at"],
-                     "body": r.get("body") or "",
-                     "asset": (r.get("assets") or [{}])[0].get("name") if r.get("assets") else ""}
-                    for r in (reg.get("releases") or [])],
-        "repo_url": reg.get("repo_url") or f"https://github.com/{site['author']}/{name}",
-        "stars": reg.get("stars") or 0,
-        "pushed_at": reg.get("pushed_at") or "",
-        "archived": bool(reg.get("archived")),
-        "auto": True,
-    }
-
-
-def load():
-    """注册表 + 手写叠加层 → 项目清单。
-
-    顺序很重要：
-      1. registry.json 给出「有哪些项目、它们现在是什么版本」——机器的事实。
-      2. projects.py 里写的同 id 条目覆盖文案，并可以补手写事实（亮点/限制/最低系统）。
-      3. 注册表里有、projects.py 里没写的仓库，用 derive() 造一张卡，标注 auto。
-
-    反过来（以 projects.py 为清单）就是原来那套：新仓库不上站、版本号要人推代码更新。
-    """
-    ns = {}
-    exec((DATA / "projects.py").read_text(encoding="utf-8"), ns)
-    site = ns.get("SITE", SITE)
-    groups = ns.get("GROUPS", GROUPS)
-    hand = ns["PROJECTS"]
-    reg_projects = load_registry()
-    mirrors, mirror_params = load_mirrors()
-
-    gmap = {k: (k, label, desc) for k, label, desc in groups}
-
-    projects, auto_n = [], 0
-    for p in hand:
-        pid = p["id"]
-        merged = dict(p)
-        reg = reg_projects.get(p.get("repo") or "") or reg_projects.get(pid) or {}
-        if reg:
-            base = derive(reg, site)
-            # 手写字段优先；手写没写的用派生值补
-            for k, v in base.items():
-                if k not in merged or merged[k] in (None, "", [], {}):
-                    merged[k] = v
-            merged["auto"] = False
-        else:
-            # 手写了、但账号下没有这个仓库：保留卡片并明确标注，不静默丢掉
-            merged.setdefault("repo_url", f"https://github.com/{site['author']}/{merged.get('repo', pid)}")
-            merged["auto"] = False
-            merged["missing"] = True
-        projects.append(merged)
-
-    known = {p.get("repo") or p["id"] for p in projects} | {p["id"] for p in projects}
-    for name, reg in sorted(reg_projects.items()):
-        if name in known or name.lower() in known:
-            continue
-        projects.append(derive(reg, site))
-        auto_n += 1
-
-    for p in projects:
-        p.setdefault("status", "beta")
-        p.setdefault("min_android", "")
-        p.setdefault("arch", "")
-        p.setdefault("store_note", "")
-        p.setdefault("installation", "")
-        p["releases_url"] = f"https://github.com/{site['author']}/{p['repo']}/releases"
-        p["url"] = f"{p['id']}.html"
-        p["group_label"] = gmap.get(p["group"], (p["group"], p.get("group") or "其他", ""))[1]
-        p["installable"] = bool(p.get("platform") and p.get("dl_release"))
-        if p["size_text"]:
-            for k in ("pitch", "summary", "store_note"):
-                if isinstance(p.get(k), str):
-                    p[k] = p[k].replace("{size}", p["size_text"])
-
-    # 手写清单里分组未知的（新加的组），补进 groups，否则导航上会缺一段
-    used = {p["group"] for p in projects}
-    for g in used:
-        if g not in gmap:
-            groups = list(groups) + [(g, g, "")]
-
-    p_mirrors = {
-        "mirrors": [
-            {"id": m["id"], "label": m["label"], "prefix": m.get("prefix", ""),
-             "role": m.get("role", "accelerator"), "note": m.get("note", "")}
-            for m in mirrors
-        ],
-        "params": mirror_params,
-    }
-    return site, list(groups), projects, p_mirrors
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
 
 
 CSS = """
@@ -452,7 +249,6 @@ html.js .reveal.rv{opacity:0;transform:translateY(10px);transition:opacity .35s,
 animation:rvfallback .01s 1.2s forwards}
 html.js .reveal.rv.on{opacity:1;transform:none;animation:none}
 @keyframes rvfallback{to{opacity:1;transform:none}}
-<<<<<<< HEAD
 /* ---- v3：新增页面（最新 / 时间线 / 对比 / 集合 / 数据）----
    全部复用上面的变量，不引入新配色 —— 一个站点出现第二套色板，
    通常意味着没人再统一维护它。 */
@@ -535,8 +331,6 @@ border-radius:10px;background:var(--panel);color:var(--fg)}
 .relcard span{color:var(--muted);font-size:.8rem;line-height:1.5}
 header.top nav a[aria-current=page]{color:var(--fg);font-weight:600}
 .ver{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
-=======
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
 @media print{.reveal{opacity:1!important;transform:none!important;animation:none!important}}
 .pill{display:inline-block;padding:5px 12px;border-radius:20px;border:1px solid var(--border);
 background:var(--panel);color:var(--fg);font-size:.85rem;margin:0 6px 6px 0}
@@ -645,11 +439,7 @@ border-radius:12px}
 }
 """
 
-<<<<<<< HEAD
 SEARCH_JS = r"""
-=======
-SEARCH_JS = """
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
 /* 站内搜索：构建时预生成 search.json，运行时纯前端过滤。
    ------------
    三处刻意设计：
@@ -671,21 +461,13 @@ SEARCH_JS = """
   if(!box||!out) return;
   var data=null,timer=null,idx=-1,hits=[],lang=(document.documentElement.lang||'zh').indexOf('zh')===0;
 
-<<<<<<< HEAD
   fetch('__BASE__search.json').then(function(r){return r.json()}).then(function(j){
-=======
-  fetch('search.json').then(function(r){return r.json()}).then(function(j){
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
     data=j;
   }).catch(function(){
     out.innerHTML='<p class="empty">'+(lang
       ? '搜索索引没能加载（可能离线，或 search.json 缺失）。'
       : 'Search index failed to load.')+
-<<<<<<< HEAD
       (lang?'可以改从 <a href="__BASE__tags.html">标签索引</a> 浏览。':'')
-=======
-      (lang?'可以改从 <a href="tags.html">标签索引</a> 浏览。':'')
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
       +'</p>';
   });
 
@@ -737,11 +519,7 @@ SEARCH_JS = """
     out.innerHTML=hits.map(function(h){
       var d=h[1],s=d.summary||'';
       for(var t=0;t<ts.length;t++){
-<<<<<<< HEAD
         var re = new RegExp('(' + ts[t].replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig');
-=======
-        var re=new RegExp('('+ts[t].replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','ig');
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
         s=s.replace(re,'<mark>$1</mark>');
       }
       return '<a class="hit" href="'+esc(d.url)+'" role="option" aria-selected="false">'+
@@ -1221,7 +999,6 @@ REVEAL_JS = r"""
 
 
 def nav_items(site, prefix):
-<<<<<<< HEAD
     """导航项只在这里出现一次。
 
     新增的四个入口（最新 / 时间线 / 对比 / 集合）不是「多几个链接」——
@@ -1240,18 +1017,11 @@ def nav_items(site, prefix):
         (f"{prefix}compare.html", "对比"),
         (f"{prefix}collections.html", "集合"),
         (f"{prefix}stats.html", "数据"),
-=======
-    """导航项只在这里出现一次。"""
-    return [
-        (f"{prefix}index.html", "全部项目"),
-        (f"{prefix}store.html", "应用商店"),
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
         (f"{prefix}tags.html", "标签"),
         (f"{site['author_url']}", "GitHub"),
     ]
 
 
-<<<<<<< HEAD
 def _cur(active, href):
     """导航高亮。用 aria-current 而不是只有 CSS 类：读屏用户也能知道自己在哪。"""
     if not active:
@@ -1262,10 +1032,6 @@ def _cur(active, href):
 def page(site, title, body, depth=0, search=False, store=False, mirrors=None,
          desc=None, og_type="website", canonical=None, jsonld=None, robots="index,follow",
          active="", extra_head="", wide=False):
-=======
-def page(site, title, body, depth=0, search=False, store=False, mirrors=None,
-         desc=None, og_type="website", canonical=None, jsonld=None, robots="index,follow"):
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
     """渲染一张页面。
 
     desc / canonical / jsonld 不是可选的锦上添花：没有 canonical 与 og:url，
@@ -1278,7 +1044,6 @@ def page(site, title, body, depth=0, search=False, store=False, mirrors=None,
     url = canonical or (f"{base}/" if not depth else "")
     desc = desc or site["desc"]
 
-<<<<<<< HEAD
     theme_js = THEME_JS.replace("__BASE__", prefix)
     # 页面专属脚本要放在 </body> 之前，而不是 <head> 里：
     # 表头排序、安装按钮这类逻辑一上来就要 querySelectorAll，
@@ -1287,9 +1052,6 @@ def page(site, title, body, depth=0, search=False, store=False, mirrors=None,
     #   静态自检当时全绿——它只查了 data-sort 属性在不在。）
     extra_body_script = extra_head.replace("<script>", "<script>").replace("<link", "<link")
     script = f"<script>{SEARCH_JS.replace('__BASE__', prefix)}</script>" if search else ""
-=======
-    script = f"<script>{SEARCH_JS}</script>" if search else ""
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
     if store:
         script += f"<script>window.__DL={json.dumps(mirrors or {}, ensure_ascii=False)}</script>"
         script += f"<script>{STORE_JS}</script>"
@@ -1303,13 +1065,9 @@ def page(site, title, body, depth=0, search=False, store=False, mirrors=None,
     canonical_tag = f'<link rel="canonical" href="{esc(url)}">\n' if url else ""
     og_url = f'<meta property="og:url" content="{esc(url)}">\n' if url else ""
 
-<<<<<<< HEAD
     nav = "".join(
         f'<a href="{esc(h)}"{_cur(active, h)}>{esc(t)}</a>'
         for h, t in nav_items(site, prefix))
-=======
-    nav = "".join(f'<a href="{esc(h)}">{esc(t)}</a>' for h, t in nav_items(site, prefix))
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
 
     html = f"""<!doctype html>
 <html lang="zh-CN" data-theme="auto">
@@ -1324,14 +1082,11 @@ def page(site, title, body, depth=0, search=False, store=False, mirrors=None,
 <meta name="theme-color" content="#0b0f14" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#f6f8fa" media="(prefers-color-scheme: light)">
 <link rel="icon" href="{prefix}icon.svg" type="image/svg+xml">
-<<<<<<< HEAD
 <link rel="manifest" href="{prefix}manifest.json">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="{esc(site['name'])}">
 <link rel="apple-touch-icon" href="{prefix}icon.svg">
 {extra_head}
-=======
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
 <link rel="alternate" type="application/rss+xml" title="{esc(site['name'])} · 作品更新" href="{prefix}feed.xml">
 {canonical_tag}<meta property="og:site_name" content="{esc(site['name'])}">
 <meta property="og:title" content="{esc(title)}">
@@ -1341,24 +1096,17 @@ def page(site, title, body, depth=0, search=False, store=False, mirrors=None,
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="{esc(title)}">
 <meta name="twitter:description" content="{esc(desc)}">
-<<<<<<< HEAD
 <script>{theme_js}</script>
-=======
-<script>{THEME_JS}</script>
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
 <link rel="stylesheet" href="{prefix}style.css">
 {ld}</head>
 <body>
 <a class="skip" href="#main">跳到正文</a>
-<<<<<<< HEAD
 <div class="netbar" id="netbar" hidden>📴 当前离线，页面来自缓存。下载类操作会失败。</div>
 <div class="installbar" id="installbar" hidden>
 <span id="installtip" hidden>装到主屏：点下方「分享」→「添加到主屏幕」，之后可离线打开。</span>
 <button class="btn small" type="button" id="installbtn" hidden>⤓ 装到桌面</button>
 <button class="btn small ghost" type="button" onclick="document.getElementById('installbar').remove()">不用了</button>
 </div>
-=======
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
 <header class="top"><div class="wrap">
 <a class="brand" href="{prefix}index.html">🧊 <em>ice</em> 工坊</a>
 <nav>
@@ -1372,7 +1120,6 @@ def page(site, title, body, depth=0, search=False, store=False, mirrors=None,
 <footer><div class="wrap">
 <p>{esc(site['tagline'])} · 站点由 <code>scripts/build_site.py</code> 从 <code>data/projects.py</code> 生成（零依赖、纯静态）。</p>
 <p><a href="{prefix}index.html">全部项目</a> · <a href="{prefix}store.html">应用商店</a> ·
-<<<<<<< HEAD
 <a href="{prefix}latest.html">最新</a> · <a href="{prefix}timeline.html">时间线</a> ·
 <a href="{prefix}compare.html">对比</a> · <a href="{prefix}collections.html">集合</a> ·
 <a href="{prefix}stats.html">数据</a> · <a href="{prefix}tags.html">标签索引</a> ·
@@ -1384,14 +1131,6 @@ def page(site, title, body, depth=0, search=False, store=False, mirrors=None,
 <script>{THEME_BTN_JS}</script>
 <script>{REVEAL_JS}</script>
 <script>{INSTALL_JS}</script>
-=======
-<a href="{prefix}tags.html">标签索引</a> · <a href="{prefix}sitemap.xml">站点地图</a> ·
-<a href="{prefix}feed.xml">RSS</a> · <a href="{site['author_url']}">{esc(site['author'])} on GitHub</a></p>
-<p class="fine">页面上的版本号、体积、发布时间均由构建时从仓库内快照渲染，可核对；不含统计脚本、不含 Cookie、不请求任何第三方域。</p>
-</div></footer>
-<script>{THEME_BTN_JS}</script>
-<script>{REVEAL_JS}</script>
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
 {script}
 </body>
 </html>"""
@@ -1399,23 +1138,8 @@ def page(site, title, body, depth=0, search=False, store=False, mirrors=None,
 
 
 
-<<<<<<< HEAD
 rich = overlay.rich
 plain = overlay.plain
-=======
-# 允许出现在文案里的行内标签。数据源是仓库内的 Python 文件（不是外部输入），
-# 但仍然先整体转义再按白名单放回：这样即使以后有人从接口拼文案进来，
-# 也只会得到字面文本，不会得到一段可执行 HTML。
-RICH_TAGS = ("code", "b", "em", "kbd")
-
-
-def rich(s):
-    out = esc(s)
-    for t in RICH_TAGS:
-        out = re.sub(rf"&lt;{t}&gt;(.*?)&lt;/{t}&gt;",
-                     lambda m, t=t: f"<{t}>{m.group(1)}</{t}>", out, flags=re.S)
-    return out
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
 
 
 def badge(text, kind):
@@ -1496,11 +1220,7 @@ def _rel_time(site, published_at):
     return published_at or ""
 
 
-<<<<<<< HEAD
 def build(site, groups, projects, mirrors=None, model=None):
-=======
-def build(site, groups, projects, mirrors=None):
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
     # 可安装集合先算：首页 hero 与商店页都要用，不能等商店页渲染完才知道
     apps = [p for p in projects if p["installable"]]
     n_apps = len(apps)
@@ -1587,12 +1307,9 @@ def build(site, groups, projects, mirrors=None):
         for p in recent
     )
 
-<<<<<<< HEAD
     tl_entries = insight.timeline(projects)
     n_collections = len(insight.collection_catalog(model))
 
-=======
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
     top_tags = list(tagmap.items())[:14]
     tag_html = "".join(
         f'<a class="pill" href="{esc(tag_slug[t])}">{esc(t)} <b>{len(ps)}</b></a>'
@@ -1619,7 +1336,6 @@ def build(site, groups, projects, mirrors=None):
  placeholder="搜索 {len(projects)} 个项目（名称 / 简介 / 技术栈 / 亮点）…" autocomplete="off">
 <div id="results"></div>
 <div class="filterbar">{tag_html}<a class="pill" href="tags.html">全部标签 →</a></div>
-<<<<<<< HEAD
 <div class="entrygrid">
 <a class="entry" href="latest.html"><b>🆕 最新更新</b><span>{len(tl_entries)} 个版本按发布日期倒序，改 README 不会出现在这里</span></a>
 <a class="entry" href="timeline.html"><b>🕒 时间线</b><span>全部 {len(tl_entries)} 个版本排成一条历史，看节奏</span></a>
@@ -1628,8 +1344,6 @@ def build(site, groups, projects, mirrors=None):
 <a class="entry" href="stats.html"><b>📊 数据</b><span>站点每个数字的出处，附 stats.json</span></a>
 <a class="entry" href="store.html"><b>🧊 应用商店</b><span>{n_apps} 个包，共 {human_size(total)}</span></a>
 </div>
-=======
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
 <details class="help" style="margin:1.2em 0 2em">
 <summary>最近更新</summary>
 <ul style="margin:.7em 0 0;padding-left:1.3em">{recent_html}</ul>
@@ -1637,11 +1351,7 @@ def build(site, groups, projects, mirrors=None):
 """ + "\n".join(sections)
     (OUT / "index.html").write_text(
         page(site, f"{site['name']} · {site['tagline']}", body, 0, search=True,
-<<<<<<< HEAD
              desc=site["desc"], canonical=base + "/", active="index.html",
-=======
-             desc=site["desc"], canonical=base + "/",
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
              jsonld=_jsonld_site(site, projects, apps)),
         encoding="utf-8")
 
@@ -1757,7 +1467,6 @@ def build(site, groups, projects, mirrors=None):
 
         tech_block = (f'<h2>技术栈</h2><div class="tech">{techs}</div>'
                       if p.get("tech") else "")
-<<<<<<< HEAD
         # 体检与相关项目：两个都只用已有数据，且都必须能指回 GitHub。
         health_block = pages.health_block(p, insight.health(p))
         related_block = pages.related_block(p, projects, "")
@@ -1767,8 +1476,6 @@ def build(site, groups, projects, mirrors=None):
             related_block = ('<h2>相关项目</h2><div class="relgrid">'
                              '<p class="fine">这个项目没有同分组、也没有共享标签的邻居，'
                              '所以这里没有推荐。不是加载失败。</p></div>')
-=======
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
 
         auto_badge = badge("自动收录", "") if p.get("auto") else ""
         # summary 与 pitch 常常是同一句话（自动收录的项目更是必然相同：
@@ -1790,15 +1497,10 @@ def build(site, groups, projects, mirrors=None):
 {sha_block}
 {history_block}
 {hl_block}
-<<<<<<< HEAD
 {health_block}
 {limits_block}
 {tech_block}
 {related_block}
-=======
-{limits_block}
-{tech_block}
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
 {''.join(pager)}"""
         (OUT / f'{p["id"]}.html').write_text(
             page(site, f'{p["name"]} · {site["name"]}', b,
@@ -1833,11 +1535,7 @@ def build(site, groups, projects, mirrors=None):
     (OUT / "tags.html").write_text(
         page(site, f"标签索引 · {site['name']}", tag_body,
              desc=f"{site['name']}全部 {len(tagmap)} 个标签，按项目数排序",
-<<<<<<< HEAD
              canonical=base + "/tags.html", active="tags.html"), encoding="utf-8")
-=======
-             canonical=base + "/tags.html"), encoding="utf-8")
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
 
     # ---- 应用商店 ----
     build_store(site, groups, projects, mirrors)
@@ -1859,7 +1557,6 @@ def build(site, groups, projects, mirrors=None):
     (OUT / "404.html").write_text(
         page(site, "404 · " + site["name"], body404, robots="noindex,follow"), encoding="utf-8")
 
-<<<<<<< HEAD
     # ---- 新增页面（见 pages.py） ----
     # 每张页面都从**同一份 model** 派生，不重新 load 一次：
     # 重新 load 就会有两份 dict，页面之间出现「一个说 12、一个说 11」的概率不为零。
@@ -1920,8 +1617,6 @@ def build(site, groups, projects, mirrors=None):
     (OUT / "sw.js").write_text(
         app_assets.service_worker(version_tag, precache), encoding="utf-8")
 
-=======
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
     # ---- icon.svg：手写，不引任何素材 ----
     (OUT / "icon.svg").write_text(ICON_SVG, encoding="utf-8")
 
@@ -1946,7 +1641,6 @@ def build(site, groups, projects, mirrors=None):
     (OUT / "update.json").write_text(json.dumps({
         "_note": "由 scripts/build_site.py 从 data/registry.json 生成；"
                  "sha256 来自 GitHub Release 资产元数据，取不到就是 null（不推算）。",
-<<<<<<< HEAD
         "generated_at": source_stamp() or iso_now(),
         "count": len(apps_json),
         # 顶层自述「这份清单有多少条能被验证」，而不是让客户端自己遍历一遍数。
@@ -1957,10 +1651,6 @@ def build(site, groups, projects, mirrors=None):
             "size_covered": sum(1 for a in apps_json.values() if a.get("size")),
             "note": "sha256 取不到写 null，不推算；size 是 Release 资产的字节数原值。",
         },
-=======
-        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "count": len(apps_json),
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
         "apps": apps_json,
     }, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -1969,11 +1659,7 @@ def build(site, groups, projects, mirrors=None):
     write_feed(site, projects[:0], apps)
     write_robots(site)
 
-<<<<<<< HEAD
     # CNAME：GitHub Pages 绑定自定义域名的唯一凭据；.nojekyll 让 Pages 不要跑 Jekyll
-=======
-    # CNAME：GitHub Pages 绑定自定义域名的唯一凭据
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
     (OUT / "CNAME").write_text(site["domain"] + "\n", encoding="utf-8")
     (OUT / ".nojekyll").write_text("", encoding="utf-8")
     return len(projects), n_apps, total
@@ -1991,19 +1677,6 @@ ICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width=
 """
 
 
-<<<<<<< HEAD
-=======
-def slugify(text):
-    """锚点用。中文不能直接当 id（URL 里会被转义成一串 %E4%BD%A0），
-    所以中文标签走「tag-<sha1 前 8 位>」——稳定、可复现、短。
-    英文/数字标签保留原样，可读性更好。"""
-    s = re.sub(r"[^a-zA-Z0-9_-]+", "-", text).strip("-").lower()
-    if s:
-        return s
-    return "tag-" + hashlib.sha1(text.encode("utf-8")).hexdigest()[:8]
-
-
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
 def write_sitemap(site, projects):
     base = site.get("base_url", "").rstrip("/")
     pages = [("", "1.0"), ("store.html", "0.9"), ("tags.html", "0.6")]
@@ -2103,19 +1776,6 @@ def md_subset(text):
     return "".join(out)
 
 
-<<<<<<< HEAD
-=======
-def rfc822(iso_date):
-    """2026-09-29 → 'Tue, 29 Sep 2026 00:00:00 +0000'。RSS 只认这个格式。"""
-    try:
-        from datetime import datetime, timezone
-        d = datetime.strptime(iso_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-        return d.strftime("%a, %d %b %Y %H:%M:%S +0000")
-    except Exception:
-        return iso_date
-
-
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
 ICONS = {
     "icescribe": "🎙", "modelscopebrowser": "🤖", "kayago": "⚫", "icescan": "📄",
     "icebrowser": "🌐", "icereading": "📖", "musicfusion": "🎵", "musicfusionai": "✨",
@@ -2366,7 +2026,6 @@ def build_store(site, groups, projects, mirrors=None):
 <div id="retry"></div>"""
 
     (OUT / "store.html").write_text(
-<<<<<<< HEAD
         page(site, f"{site['store_name']} · {site['name']}", body, 0, store=True,
              mirrors=mirrors, active="store.html"),
         encoding="utf-8")
@@ -2441,18 +2100,12 @@ def _content_index(out: Path, base: str) -> dict:
     }
 
 
-=======
-        page(site, f"{site['store_name']} · {site['name']}", body, 0, store=True, mirrors=mirrors),
-        encoding="utf-8")
-
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
 def main():
     global OUT
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=str(OUT))
     args = ap.parse_args()
     OUT = Path(args.out)
-<<<<<<< HEAD
     site, groups, projects, mirrors, model = load()
     n, n_apps, total = build(site, groups, projects, mirrors, model)
     # content.json 必须**最后**生成：它是产物索引，早写一步就会漏掉后面写的
@@ -2463,11 +2116,6 @@ def main():
     write_json(OUT / "content.json", content)
     print(f"构建完成：{n} 个项目 → {OUT}")
     print(f"产物指纹：{content['build']['id'][:16]}（{content['build']['files']} 个文件）")
-=======
-    site, groups, projects, mirrors = load()
-    n, n_apps, total = build(site, groups, projects, mirrors)
-    print(f"构建完成：{n} 个项目 → {OUT}")
->>>>>>> f5839e68205838e0d618905335f067bec3fd5355
     print(f"应用商店：{n_apps} 个可安装包，共 {human_size(total)}")
     print(f"首页：{OUT / 'index.html'}")
     print(f"CNAME：{site['domain']}")
