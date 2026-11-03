@@ -486,6 +486,20 @@ def main():
         url = f"{p['id']}.html"
         if f"/{url}<" not in sm:
             errors.append(f"sitemap.xml 缺少 {url}")
+    # 反过来也要对一次：sitemap 必须覆盖**每一张可索引页面**。
+    # 只查「项目页都在」是不够的 —— v3 新增的五张页面（latest/timeline/compare/
+    # collections/stats）当时就漏了，而「项目页都在」这条照样绿。
+    # 404.html 是 noindex，本就不该进 sitemap，所以它单独排除。
+    indexable = [f.name for f in SITE_DIR.glob("*.html")
+                 if f.name != "404.html"
+                 and 'name="robots" content="noindex' not in f.read_text(encoding="utf-8")]
+    def in_sitemap(name):
+        # 首页在 sitemap 里是目录形式（base/），不是 base/index.html
+        return (f"/{name}<" in sm) if name != "index.html" else (f"{site['base_url'].rstrip('/')}/<" in sm)
+
+    missing = [n for n in sorted(indexable) if not in_sitemap(n)]
+    if missing:
+        errors.append(f"sitemap.xml 漏了 {len(missing)} 张可索引页面：{missing}")
     robots = (SITE_DIR / "robots.txt").read_text(encoding="utf-8") if (SITE_DIR / "robots.txt").exists() else ""
     if "Sitemap:" not in robots:
         errors.append("robots.txt 没有声明 Sitemap")

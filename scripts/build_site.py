@@ -1679,7 +1679,14 @@ ICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width=
 
 def write_sitemap(site, projects):
     base = site.get("base_url", "").rstrip("/")
-    pages = [("", "1.0"), ("store.html", "0.9"), ("tags.html", "0.6")]
+    # 可索引的固定页面都要进来。漏掉一张，那张页面对搜索引擎就等于不存在 ——
+    # 这不是「有就好」的清单，CI 里有一条守卫按 html 页面对账（sitemap 条目数
+    # 必须 >= 可索引页面数 - 1，减的那一个是 404）。
+    # 上一版就漏了 v3 新增的五张：构建全绿、自检全绿，只有部署那一层的 shell 断言
+    # 才看得见。所以现在这条对账住在 check_site.py 里，两边同一份口径。
+    pages = [("", "1.0"), ("store.html", "0.9"), ("tags.html", "0.6"),
+             ("latest.html", "0.7"), ("timeline.html", "0.7"), ("compare.html", "0.7"),
+             ("collections.html", "0.7"), ("stats.html", "0.7")]
     for p in projects:
         pages.append((p["url"], "0.8"))
     rows = []

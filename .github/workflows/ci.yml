@@ -50,10 +50,10 @@ jobs:
           # 差这一个才是对的。上一版这条断言写成 `sm >= pages`，于是它必然失败，
           # 而且失败信息只会说「Process completed with exit code 1」，看不出是这条。
           sm=$(grep -c '<url>' site/sitemap.xml)
-          want=$((pages))          # 页面数（含 404）
-          test "$sm" -ge $((want - 1)) || { echo "sitemap 只有 $sm 条，页面 $want 张（404 不计入）"; exit 1; }
+          look=$(grep -L 'name="robots" content="noindex' $(find site -maxdepth 1 -name '*.html') | wc -l)
+          test "$sm" -ge "$look" || { echo "sitemap 只有 $sm 条，可索引页面 $look 张（noindex 的 404 不计入）"; exit 1; }
           grep -q '404.html' site/sitemap.xml && { echo "404.html 不该进 sitemap"; exit 1; }
-          echo "sitemap 条目 $sm（页面 $want，404 不计入）"
+          echo "sitemap 条目 $sm（可索引页面 $look，404 不计入）"
       - name: 构建应可重复 + 产物自索引自洽
         run: |
           # 「可重复构建」的检查只有一份实现：check_site.py --reproducible。
